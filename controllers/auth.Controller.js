@@ -49,36 +49,69 @@ export const loginCinemaAdmin = async (req, res) => {
 
   try {
     const result = await pool.query(
-      'SELECT * FROM cinema_admin_user WHERE email = $1',
+      `
+      SELECT 
+        a.id AS admin_id,
+        a.name AS admin_name,
+        a.email,
+        a.password,
+        a.phone,
+        a.created_at AS admin_created_at,
+        h.id AS hall_id,
+        h.name AS hall_name,
+        h.location AS hall_location,
+        h.created_at AS hall_created_at
+      FROM cinema_admin_user a
+      LEFT JOIN cinema_hall h ON h.admin_id = a.id
+      WHERE a.email = $1
+      `,
       [email]
     )
 
-    if (result.rows.length === 0) return res.status(400).json({ error: 'Admin not found' })
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Admin not found' })
+    }
 
     const admin = result.rows[0]
+
     const match = await bcrypt.compare(password, admin.password)
+    if (!match) {
+      return res.status(400).json({ error: 'Invalid password' })
+    }
 
-    if (!match) return res.status(400).json({ error: 'Invalid password' })
+    const tokenPayload = {
+      id: admin.admin_id,
+      name: admin.admin_name,
+      email: admin.email,
+    }
 
-    const { accessToken, refreshToken } = generateTokenAndSetCookie(res, admin)
+    const { accessToken, refreshToken } = generateTokenAndSetCookie(res, tokenPayload)
 
     res.json({
       message: 'Login successful',
       accessToken,
       refreshToken,
       admin: {
-        id: admin.id,
-        name: admin.name,
+        id: admin.admin_id,
+        name: admin.admin_name,
         email: admin.email,
         phone: admin.phone,
+        created_at: admin.admin_created_at,
       },
+      hall: admin.hall_id
+        ? {
+          id: admin.hall_id,
+          name: admin.hall_name,
+          location: admin.hall_location,
+          created_at: admin.hall_created_at,
+        }
+        : null,
     })
   } catch (err) {
     console.error('❌ Login error:', err.message)
     res.status(500).json({ error: 'Login failed. Try again later.' })
   }
 }
-
 
 // ✅ Refresh Access Token
 export const refreshCinemaAdminToken = async (req, res) => {
@@ -92,7 +125,7 @@ export const refreshCinemaAdminToken = async (req, res) => {
     const admin = result.rows[0]
 
     const newAccessToken = jwt.sign(
-      { adminId: admin.id, name: admin.name, email: admin.email },
+      { id: admin.id, name: admin.name, email: admin.email },
       process.env.JWT_SECRET,
       { expiresIn: '15m' }
     )
@@ -114,29 +147,55 @@ export const refreshCinemaAdminToken = async (req, res) => {
 // ✅ Get Logged-in Admin
 export const getCinemaAdminMe = async (req, res) => {
   try {
-    // req.admin is set by verifyCinemaAdminAccessToken middleware
     const adminId = req.admin.id
 
-    const result = await pool.query('SELECT * FROM cinema_admin_user WHERE id = $1', [adminId])
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Admin not found' })
+    const result = await pool.query(
+      `
+      SELECT 
+        a.id AS admin_id,
+        a.name AS admin_name,
+        a.email,
+        a.phone,
+        a.created_at AS admin_created_at,
+        h.id AS hall_id,
+        h.name AS hall_name,
+        h.location AS hall_location,
+        h.created_at AS hall_created_at
+      FROM cinema_admin_user a
+      LEFT JOIN cinema_hall h ON h.admin_id = a.id
+      WHERE a.id = $1
+      `,
+      [adminId]
+    )
 
-    const admin = result.rows[0]
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Admin not found' })
+    }
+
+    const row = result.rows[0]
 
     res.json({
       admin: {
-        id: admin.id,
-        name: admin.name,
-        email: admin.email,
-        phone: admin.phone,
-        created_at: admin.created_at,
+        id: row.admin_id,
+        name: row.admin_name,
+        email: row.email,
+        phone: row.phone,
+        created_at: row.admin_created_at,
       },
+      hall: row.hall_id
+        ? {
+          id: row.hall_id,
+          name: row.hall_name,
+          location: row.hall_location,
+          created_at: row.hall_created_at,
+        }
+        : null,
     })
   } catch (err) {
     console.error('❌ getMe error:', err.message)
     res.status(500).json({ error: 'Failed to fetch admin info' })
   }
 }
-
 
 // ✅ Logout
 export const logoutCinemaAdmin = async (req, res) => {
