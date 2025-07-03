@@ -3,11 +3,12 @@ import express from 'express';
 import dotenv from 'dotenv';
 import http from 'http';
 import cookieParser from 'cookie-parser';
+import cors from "cors";
 import chalk from 'chalk';
 import dayjs from 'dayjs';
-import authRoutes from './routes/auth.routes.js';
 import pool from './db.js'; // DB connection for testing
-import cors from "cors";
+import authRoutes from './routes/auth.routes.js';
+import screensRoutes from './routes/screens.routes.js';
 
 // Load env variables
 dotenv.config();
@@ -52,6 +53,7 @@ app.use(cookieParser());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/screens', screensRoutes);
 
 
 // Health check

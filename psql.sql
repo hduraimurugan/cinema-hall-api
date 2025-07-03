@@ -17,15 +17,31 @@ CREATE TABLE cinema_hall (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+ALTER TABLE cinema_hall
+ADD COLUMN district TEXT NOT NULL DEFAULT '',
+ADD COLUMN state TEXT NOT NULL DEFAULT '';
+
+
 --screens
 CREATE TABLE screens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  hall_id UUID REFERENCES cinema_hall(id) ON DELETE CASCADE,
+  cinema_hall_id UUID REFERENCES cinema_hall(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   total_seats INT NOT NULL,
-  layout JSONB, -- Optional: stores layout data for rows, cols, and seat map
+  premium_seats INT NOT NULL,
+  gold_seats INT NOT NULL,
+  silver_seats INT NOT NULL,
+  premium_price NUMERIC(10,2) NOT NULL,
+  gold_price NUMERIC(10,2) NOT NULL,
+  silver_price NUMERIC(10,2) NOT NULL,
+  rows INT NOT NULL,
+  columns INT NOT NULL,
+  screen_position TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE screens
+ADD COLUMN layout JSONB;
+
 
 CREATE TABLE movies (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -10,25 +10,25 @@ export const generateTokenAndSetCookie = (res, admin) => {
     }
 
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
-        expiresIn: '15m',
+        expiresIn: '1d',
     })
 
     const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, {
-        expiresIn: '7d',
+        expiresIn: '30d',
     })
 
     res.cookie('accessToken', accessToken, {
         httpOnly: true,
         secure: isProduction,
         sameSite: isProduction ? "none" : "lax",
-        maxAge: 15 * 60 * 1000, // 15 min
+        maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day
     })
 
     res.cookie('refreshToken', refreshToken, {
         httpOnly: true,
         secure: isProduction,
         sameSite: isProduction ? "none" : "lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     })
 
     return { accessToken, refreshToken }
