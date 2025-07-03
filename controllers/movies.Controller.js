@@ -130,13 +130,68 @@ export const deleteMovie = async (req, res) => {
   }
 }
 
-// 🔸 Get all movies (SuperAdmin only)
+// 🔸 Get all movies with filters and pagination (SuperAdmin only)
 export const getAllMovies = async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const result = await client.query('SELECT * FROM movies ORDER BY release_date DESC')
-    res.json(result.rows)
+    const {
+      page = 1,
+      limit = 10,
+      genre,
+      language,
+      status,
+      release_date,
+    } = req.query
+
+    const offset = (page - 1) * limit
+
+    // Build WHERE conditions dynamically
+    const filters = []
+    const values = []
+
+    if (genre) {
+      values.push(genre)
+      filters.push(`genre = $${values.length}`)
+    }
+
+    if (language) {
+      values.push(language)
+      filters.push(`language = $${values.length}`)
+    }
+
+    if (status) {
+      values.push(status)
+      filters.push(`status = $${values.length}`)
+    }
+
+    if (release_date) {
+      values.push(release_date)
+      filters.push(`release_date = $${values.length}`)
+    }
+
+    const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : ''
+
+    // Final query with pagination
+    const query = `
+      SELECT *
+      FROM movies
+      ${whereClause}
+      ORDER BY release_date DESC
+      LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+    `
+
+    values.push(limit)
+    values.push(offset)
+
+    const result = await client.query(query, values)
+
+    res.json({
+      movies: result.rows,
+      page: Number(page),
+      limit: Number(limit),
+      total: result.rows.length, // for now, returning just current count
+    })
   } catch (error) {
     console.error('Error fetching movies:', error.message)
     res.status(500).json({ message: 'Server error while fetching movies' })
