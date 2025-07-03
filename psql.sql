@@ -56,6 +56,11 @@ CREATE TABLE movies (
   release_date DATE,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE movies
+  ALTER COLUMN genre SET DATA TYPE TEXT[] USING ARRAY[genre],
+  ALTER COLUMN language SET DATA TYPE TEXT[] USING ARRAY[language];
+
+
 
 CREATE TABLE shows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
