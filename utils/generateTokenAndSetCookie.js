@@ -6,7 +6,8 @@ export const generateTokenAndSetCookie = (res, admin) => {
     const payload = {
         id: admin.id,
         email: admin.email,
-        name: admin.name
+        name: admin.name,
+        role: admin.role,
     }
 
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {

@@ -9,6 +9,7 @@ import dayjs from 'dayjs';
 import pool from './db.js'; // DB connection for testing
 import authRoutes from './routes/auth.routes.js';
 import screensRoutes from './routes/screens.routes.js';
+import moviesRoutes from './routes/movies.routes.js';
 
 // Load env variables
 dotenv.config();
@@ -54,6 +55,7 @@ app.use(cookieParser());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/screens', screensRoutes);
+app.use('/api/movies', moviesRoutes);  //only SuperAdmin
 
 
 // Health check
@@ -96,3 +98,15 @@ const startServer = async () => {
 };
 
 startServer();
+
+process.on('unhandledRejection', (err) => {
+  console.error('🔥 Unhandled Rejection:', err.message);
+  if (
+    err.message.includes('TLS') ||
+    err.message.includes('network') ||
+    err.message.includes('socket')
+  ) {
+    console.log('🔁 Retrying after 5 seconds...');
+    setTimeout(() => process.exit(1), 5000); // nodemon or pm2 will restart
+  }
+});

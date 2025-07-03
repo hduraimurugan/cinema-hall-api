@@ -56,6 +56,7 @@ export const loginCinemaAdmin = async (req, res) => {
         a.email,
         a.password,
         a.phone,
+        a.role,
         a.created_at AS admin_created_at,
         h.id AS hall_id,
         h.name AS hall_name,
@@ -85,6 +86,7 @@ export const loginCinemaAdmin = async (req, res) => {
       id: admin.admin_id,
       name: admin.admin_name,
       email: admin.email,
+      role: admin.role,
     }
 
     const { accessToken, refreshToken } = generateTokenAndSetCookie(res, tokenPayload)
@@ -98,6 +100,7 @@ export const loginCinemaAdmin = async (req, res) => {
         name: admin.admin_name,
         email: admin.email,
         phone: admin.phone,
+        role: admin.role,
         created_at: admin.admin_created_at,
       },
       hall: admin.hall_id
@@ -129,7 +132,7 @@ export const refreshCinemaAdminToken = async (req, res) => {
     const admin = result.rows[0]
 
     const newAccessToken = jwt.sign(
-      { id: admin.id, name: admin.name, email: admin.email },
+      { id: admin.id, name: admin.name, email: admin.email, role: admin.role },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     )
@@ -160,6 +163,7 @@ export const getCinemaAdminMe = async (req, res) => {
         a.name AS admin_name,
         a.email,
         a.phone,
+        a.role,
         a.created_at AS admin_created_at,
         h.id AS hall_id,
         h.name AS hall_name,
@@ -186,6 +190,7 @@ export const getCinemaAdminMe = async (req, res) => {
         name: row.admin_name,
         email: row.email,
         phone: row.phone,
+        role: row.role,
         created_at: row.admin_created_at,
       },
       hall: row.hall_id

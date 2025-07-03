@@ -36,3 +36,26 @@ export const verifyCinemaAdminRefreshToken = (req, res, next) => {
     return res.status(403).json({ message: 'Invalid or expired refresh token' })
   }
 }
+
+// ✅ Middleware to verify Super Admin Access
+export const verifySuperAdmin = async (req, res, next) => {
+  const token = req.cookies.accessToken
+  if (!token) {
+    return res.status(401).json({ message: 'Access token missing' })
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET)   
+
+    // Check if the user is a super admin
+    if (decoded.role !== 'superAdmin') {
+      return res.status(403).json({ message: 'Access denied: Super admin only' })
+    }
+
+    req.admin = decoded // attach the user payload
+    next()
+  } catch (err) {
+    console.error('❌ Super Admin Token Error:', err.message)
+    return res.status(403).json({ message: 'Invalid or expired access token' })
+  }
+}

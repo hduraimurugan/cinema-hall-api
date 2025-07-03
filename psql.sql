@@ -48,13 +48,14 @@ CREATE TABLE movies (
   title TEXT NOT NULL,
   description TEXT,
   poster_url TEXT,
+  trailer_url TEXT,
   duration_mins INT,
   genre TEXT,
   language TEXT,
+  status TEXT NOT NULL DEFAULT 'upcoming',
   release_date DATE,
   created_at TIMESTAMPTZ DEFAULT now()
 );
-
 
 CREATE TABLE shows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
