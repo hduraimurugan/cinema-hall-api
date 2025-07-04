@@ -4,6 +4,7 @@ import {
   editMovie,
   deleteMovie,
   getAllMovies,
+  getMovieById,
   updateMovieStatus
 } from '../controllers/movies.Controller.js'
 
@@ -15,6 +16,7 @@ router.post('/add', verifySuperAdmin, addMovie)
 router.put('/edit/:movieId', verifySuperAdmin, editMovie)
 router.delete('/delete/:movieId', verifySuperAdmin, deleteMovie)
 router.get('/', getAllMovies)
+router.get("/:id", getMovieById); // GET /movies/:id
 router.patch('/:movieId/status', verifySuperAdmin, updateMovieStatus)
 
 export default router

@@ -207,6 +207,42 @@ export const getAllMovies = async (req, res) => {
     }
 }
 
+// 🔹 Get single movie detail by ID
+export const getMovieById = async (req, res) => {
+    const client = await pool.connect();
+
+    try {
+        const { id } = req.params;
+
+        if (!id) {
+            return res.status(400).json({ message: "Movie ID is required" });
+        }
+
+        const query = `
+            SELECT *
+            FROM movies
+            WHERE id = $1
+        `;
+
+        const result = await client.query(query, [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: "Movie not found" });
+        }
+
+        res.status(200).json({
+            movie: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error("Error fetching movie by ID:", error.message);
+        res.status(500).json({ message: "Server error while fetching movie details" });
+    } finally {
+        client.release();
+    }
+}
+
+
 // 🔸 Update movie status (SuperAdmin only)
 export const updateMovieStatus = async (req, res) => {
     const { movieId } = req.params
