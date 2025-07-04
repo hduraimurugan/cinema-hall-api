@@ -10,6 +10,7 @@ import pool from './db.js'; // DB connection for testing
 import authRoutes from './routes/auth.routes.js';
 import screensRoutes from './routes/screens.routes.js';
 import moviesRoutes from './routes/movies.routes.js';
+import showsRoutes from './routes/shows.routes.js';
 
 // Load env variables
 dotenv.config();
@@ -56,6 +57,7 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/screens', screensRoutes);
 app.use('/api/movies', moviesRoutes);  //only SuperAdmin
+app.use('/api/shows', showsRoutes);  
 
 
 // Health check

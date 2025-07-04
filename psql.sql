@@ -79,8 +79,6 @@ CREATE TABLE shows (
 
   created_at TIMESTAMPTZ DEFAULT now()
 );
-
-
 ALTER TABLE shows
 ADD CONSTRAINT unique_screen_showtime
 UNIQUE (screen_id, show_date, start_time);
@@ -104,6 +102,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION prevent_overlapping_shows()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM shows
+    WHERE screen_id = NEW.screen_id
+      AND show_date = NEW.show_date
+      AND (
+        (NEW.start_time, NEW.end_time) OVERLAPS (start_time, end_time)
+      )
+      AND (id IS DISTINCT FROM NEW.id)  -- ✅ Exclude same row during UPDATE
+  ) THEN
+    RAISE EXCEPTION 'Show overlaps with an existing show on the same screen.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 
 
 CREATE TRIGGER trigger_prevent_overlap
@@ -111,6 +128,22 @@ BEFORE INSERT OR UPDATE ON shows
 FOR EACH ROW
 EXECUTE FUNCTION prevent_overlapping_shows();
 
+CREATE TABLE show_booked_seats (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  show_id UUID NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
+
+  seat_id TEXT NOT NULL,
+  row_label TEXT NOT NULL,
+  column_number INT NOT NULL,
+
+  status TEXT NOT NULL DEFAULT 'in_booking'
+    CHECK (status IN ('in_booking', 'booked', 'available')),
+
+  booked_at TIMESTAMPTZ DEFAULT now(),
+  lock_expires_at TIMESTAMPTZ, 
+
+  UNIQUE (show_id, seat_id)
+);
 
 
 CREATE TABLE bookings (
