@@ -142,6 +142,7 @@ export const getAllMovies = async (req, res) => {
             language,
             status,
             release_date,
+            search
         } = req.query
 
         // Make sure genre & language are arrays
@@ -176,6 +177,15 @@ export const getAllMovies = async (req, res) => {
         if (release_date) {
             values.push(release_date)
             filters.push(`release_date = $${values.length}`)
+        }
+
+        // 🔍 Search filter
+        if (search) {
+            values.push(`%${search}%`);
+            filters.push(`(
+                LOWER(title) ILIKE LOWER($${values.length})
+                OR LOWER(description) ILIKE LOWER($${values.length})
+            )`);
         }
 
         const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : ""

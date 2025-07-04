@@ -16,7 +16,6 @@ CREATE TABLE cinema_hall (
   location TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
-
 ALTER TABLE cinema_hall
 ADD COLUMN district TEXT NOT NULL DEFAULT '',
 ADD COLUMN state TEXT NOT NULL DEFAULT '';
@@ -42,7 +41,7 @@ CREATE TABLE screens (
 ALTER TABLE screens
 ADD COLUMN layout JSONB;
 
-
+-- movies
 CREATE TABLE movies (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
@@ -61,18 +60,57 @@ ALTER TABLE movies
   ALTER COLUMN language SET DATA TYPE TEXT[] USING ARRAY[language];
 
 
-
+-- shows
 CREATE TABLE shows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  movie_id UUID REFERENCES movies(id) ON DELETE CASCADE,
-  screen_id UUID REFERENCES screens(id) ON DELETE CASCADE,
-  start_time TIMESTAMPTZ NOT NULL,
-  end_time TIMESTAMPTZ NOT NULL,
-  price_premium NUMERIC(10, 2),
-  price_gold NUMERIC(10, 2),
-  price_silver NUMERIC(10, 2),
+
+  movie_id UUID NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+  screen_id UUID NOT NULL REFERENCES screens(id) ON DELETE CASCADE,
+
+  show_date DATE NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+
+  status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'cancelled', 'completed')),
+
+  language_version TEXT NOT NULL DEFAULT 'Original',
+
+  price_override JSONB, 
+
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+
+ALTER TABLE shows
+ADD CONSTRAINT unique_screen_showtime
+UNIQUE (screen_id, show_date, start_time);
+
+
+CREATE OR REPLACE FUNCTION prevent_overlapping_shows()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM shows
+    WHERE screen_id = NEW.screen_id
+      AND show_date = NEW.show_date
+      AND (
+        (NEW.start_time, NEW.end_time) OVERLAPS (start_time, end_time)
+      )
+  ) THEN
+    RAISE EXCEPTION 'Show overlaps with an existing show on the same screen.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+CREATE TRIGGER trigger_prevent_overlap
+BEFORE INSERT OR UPDATE ON shows
+FOR EACH ROW
+EXECUTE FUNCTION prevent_overlapping_shows();
+
 
 
 CREATE TABLE bookings (
