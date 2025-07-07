@@ -63,6 +63,20 @@ app.use('/api/shows', showsRoutes);
 // Health check
 app.get('/ping', (req, res) => res.send('pong'));
 
+app.get('/', async (req, res) => {
+  const PORT = process.env.PORT || 5000;
+  const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+
+  const response = {
+    postgres: '✅ Postgres DB Connected via Neon',
+    currentTime: `🕒 Current Time: ${now}`,
+    server: `🔗 Server Running At: http://localhost:${PORT}`
+  };
+
+  res.status(200).json(response);
+});
+
+
 // Format elapsed boot time
 const formatElapsedTime = (start) => {
   const [s, ns] = process.hrtime(start);

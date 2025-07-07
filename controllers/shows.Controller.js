@@ -1,4 +1,5 @@
 import db from "../db.js"; // assumes you have a db instance (like pg-promise or pg-pool)
+import dayjs from 'dayjs';
 
 // 1. ✅ Create Single Show
 export const createShow = async (req, res) => {
@@ -11,6 +12,10 @@ export const createShow = async (req, res) => {
         language_version = "Original",
         price_override = null,
     } = req.body;
+
+    console.log("Show Date", show_date);
+    // 🧠 Ensure only date part is stored (drop time & timezone)
+    show_date = dayjs(show_date).format("YYYY-MM-DD");
 
     try {
         const result = await db.query(
@@ -101,11 +106,18 @@ export const editShow = async (req, res) => {
     const fieldsToUpdate = [];
     const values = [];
 
-    // Dynamically build SET clause
+    // Inside editShow
     allowedFields.forEach((field, index) => {
         if (req.body[field] !== undefined) {
+            let value = req.body[field];
+
+            // 🔄 Normalize date string (if field is `show_date`)
+            if (field === "show_date") {
+                value = dayjs(value).format("YYYY-MM-DD");
+            }
+
             fieldsToUpdate.push(`${field} = $${values.length + 1}`);
-            values.push(req.body[field]);
+            values.push(value);
         }
     });
 
@@ -142,7 +154,6 @@ export const deleteShow = async (req, res) => {
         res.status(400).json({ error: err.message });
     }
 };
-
 
 
 // 5. 📆 Get Shows by Date → Group by Movie
@@ -194,7 +205,7 @@ export const getShowsByDate = async (req, res) => {
                 screen_name: show.screen_name,
                 screen_position: show.screen_position,
                 total_seats: show.total_seats,
-                show_date: show.show_date,
+                show_date: dayjs(show.show_date).format("YYYY-MM-DD"),
                 start_time: show.start_time,
                 end_time: show.end_time,
                 language_version: show.language_version,
@@ -208,6 +219,157 @@ export const getShowsByDate = async (req, res) => {
         console.error("❌ getShowsByDate error:", err.message);
         res.status(500).json({ error: err.message });
     }
+};
+
+
+//User side Book SHow
+export const bookShow = async (req, res) => {
+  const { showId } = req.params;
+  const { seats } = req.body; // Array of { seat_id, row_label, column_number, seat_label }
+
+  try {
+    const results = [];
+    const lockDurationMins = 10;
+    const lockExpiry = new Date(Date.now() + lockDurationMins * 60000);
+
+    for (const seat of seats) {
+      const { seat_id, row_label, column_number, seat_label } = seat;
+
+      const query = `
+        INSERT INTO show_booked_seats (
+          show_id, seat_id, seat_label, row_label, column_number, status, lock_expires_at
+        ) VALUES ($1, $2, $3, $4, $5, 'in_booking', $6)
+        ON CONFLICT (show_id, seat_id)
+        DO NOTHING
+        RETURNING *;
+      `;
+
+      const { rows } = await db.query(query, [
+        showId,
+        seat_id,
+        seat_label,
+        row_label,
+        column_number,
+        lockExpiry,
+      ]);
+
+      if (rows.length > 0) {
+        results.push({ seat_id, status: "locked", seat_label });
+      } else {
+        results.push({ seat_id, status: "unavailable", seat_label });
+      }
+    }
+
+    res.status(200).json({ success: true, data: results });
+  } catch (err) {
+    console.error("❌ Booking error:", err);
+    res.status(500).json({ success: false, message: "Booking failed" });
+  }
+};
+
+// User Side Get show layout
+export const getShowById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // 1️⃣ Fetch show + movie + screen
+    const showResult = await db.query(
+      `SELECT 
+        s.*, 
+        m.title, m.poster_url, m.duration_mins, m.genre, m.language,
+        sc.name AS screen_name, sc.rows, sc.columns, sc.layout, sc.screen_position
+       FROM shows s
+       JOIN movies m ON s.movie_id = m.id
+       JOIN screens sc ON s.screen_id = sc.id
+       WHERE s.id = $1`,
+      [id]
+    );
+
+    if (showResult.rowCount === 0) {
+      return res.status(404).json({ error: "Show not found" });
+    }
+
+    const show = showResult.rows[0];
+    show.show_date = dayjs(show.show_date).format("YYYY-MM-DD");
+
+    // 2️⃣ Fetch booked seats for this show
+    const now = new Date();
+    const bookedResult = await db.query(
+      `SELECT seat_id, status, lock_expires_at
+       FROM show_booked_seats 
+       WHERE show_id = $1`,
+      [id]
+    );
+
+    const seatStatusMap = {};
+    for (const seat of bookedResult.rows) {
+      // Exclude expired in_booking seats
+      if (
+        seat.status === "in_booking" &&
+        seat.lock_expires_at &&
+        new Date(seat.lock_expires_at) < now
+      ) {
+        continue; // expired, treat as available
+      }
+      seatStatusMap[seat.seat_id] = seat.status;
+    }
+
+    // 3️⃣ Mark each seat in layout with status & seat_label
+    const layout = show.layout;
+    const updatedSeats = layout.seats.map((seat) => {
+      if (seat.isBlocked || seat.type === "passage") {
+        return {
+          ...seat,
+          seat_label: null,
+          status: "blocked"
+        };
+      }
+
+      const seatStatus = seatStatusMap[seat.id] || "available";
+      const seat_label = `${seat.row}${seat.column}`;
+
+      return {
+        ...seat,
+        seat_label,
+        status: seatStatus
+      };
+    });
+
+    // 4️⃣ Final response
+    res.status(200).json({
+      show_id: show.id,
+      movie: {
+        id: show.movie_id,
+        title: show.title,
+        poster_url: show.poster_url,
+        duration: show.duration_mins,
+        genre: show.genre,
+        language: show.language,
+      },
+      screen: {
+        id: show.screen_id,
+        name: show.screen_name,
+        position: show.screen_position,
+        rows: show.rows,
+        columns: show.columns,
+        layout: {
+          ...layout,
+          seats: updatedSeats, // with updated status and seat_label
+        },
+      },
+      show_details: {
+        show_date: show.show_date,
+        start_time: show.start_time,
+        end_time: show.end_time,
+        status: show.status,
+        language_version: show.language_version,
+        price_override: show.price_override,
+      },
+    });
+  } catch (err) {
+    console.error("❌ getShowById error:", err.message);
+    res.status(500).json({ error: "Something went wrong" });
+  }
 };
 
 

@@ -128,22 +128,26 @@ BEFORE INSERT OR UPDATE ON shows
 FOR EACH ROW
 EXECUTE FUNCTION prevent_overlapping_shows();
 
+
 CREATE TABLE show_booked_seats (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  show_id UUID NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
 
-  seat_id TEXT NOT NULL,
-  row_label TEXT NOT NULL,
-  column_number INT NOT NULL,
+  show_id UUID NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
+  seat_id TEXT NOT NULL,             
+  seat_label TEXT NOT NULL,          
+
+  row_label TEXT NOT NULL,            
+  column_number INT NOT NULL,         
 
   status TEXT NOT NULL DEFAULT 'in_booking'
-    CHECK (status IN ('in_booking', 'booked', 'available')),
+    CHECK (status IN ('in_booking', 'booked', 'reserved')),
 
   booked_at TIMESTAMPTZ DEFAULT now(),
-  lock_expires_at TIMESTAMPTZ, 
+  lock_expires_at TIMESTAMPTZ,
 
   UNIQUE (show_id, seat_id)
 );
+
 
 
 CREATE TABLE bookings (

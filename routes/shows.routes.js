@@ -5,6 +5,8 @@ import {
   editShow,
   deleteShow,
   getShowsByDate,
+  bookShow,
+  getShowById
 } from "../controllers/shows.Controller.js"
 import { verifyCinemaHall , verifyScreenOwnership } from "../middleware/verifyCinemaAdmin.js"
 
@@ -17,5 +19,8 @@ router.put("/edit/:id", verifyCinemaHall, verifyScreenOwnership, editShow)
 
 router.delete("/delete/:id", verifyCinemaHall, deleteShow)
 router.get("/date/:date",verifyCinemaHall, getShowsByDate)
+
+router.get("/get/:id", getShowById)
+router.post("/book/:showId",bookShow)
 
 export default router
