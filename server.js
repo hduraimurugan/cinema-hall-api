@@ -9,6 +9,8 @@ import authRoutes from './routes/auth.routes.js';
 import screensRoutes from './routes/screens.routes.js';
 import moviesRoutes from './routes/movies.routes.js';
 import showsRoutes from './routes/shows.routes.js';
+import userAuthRoutes from './routes/customerAuth.routes.js';
+import otpRoutes from './routes/otp.routes.js';
 
 dotenv.config();
 
@@ -45,6 +47,8 @@ app.use(cookieParser());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/customer', userAuthRoutes);
+app.use('/api/otp', otpRoutes);
 app.use('/api/screens', screensRoutes);
 app.use('/api/movies', moviesRoutes);
 app.use('/api/shows', showsRoutes);

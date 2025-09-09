@@ -161,10 +161,40 @@ CREATE TABLE bookings (
 );
 
 
+-- Table: customers (end-users who sign up)
 CREATE TABLE customers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT UNIQUE NOT NULL,
-  name TEXT,
+  password TEXT NOT NULL,  -- hashed password
+  name TEXT NOT NULL,
   phone TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
+  is_verified BOOLEAN NOT NULL DEFAULT FALSE, -- linked with OTP verification
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Automatically update updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+   NEW.updated_at = now();
+   RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_customers_updated_at
+BEFORE UPDATE ON customers
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+
+-- Table: otp_verifications (stores OTP per email)
+CREATE TABLE otp_verifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL,
+  otp TEXT NOT NULL,
+  is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL, -- validity window
+  CONSTRAINT fk_customer_email FOREIGN KEY (email) REFERENCES customers(email) ON DELETE CASCADE
 );

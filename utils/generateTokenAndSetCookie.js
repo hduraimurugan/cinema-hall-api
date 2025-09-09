@@ -34,3 +34,35 @@ export const generateTokenAndSetCookie = (res, admin) => {
 
     return { accessToken, refreshToken }
 }
+
+export const generateCustomerTokenAndSetCookie = (res, customer) => {
+    const payload = {
+        id: customer.id,
+        email: customer.email,
+        name: customer.name,
+    }
+
+    const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
+        expiresIn: "1d",
+    })
+
+    const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, {
+        expiresIn: "30d",
+    })
+
+    res.cookie("cusAccessToken", accessToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
+        maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day
+    })
+
+    res.cookie("cusRefreshToken", refreshToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    })
+
+    return { accessToken, refreshToken }
+}
