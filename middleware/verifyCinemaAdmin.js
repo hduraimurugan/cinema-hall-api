@@ -143,3 +143,40 @@ export const verifyScreenOwnership = async (req, res, next) => {
     res.status(500).json({ message: "Internal error verifying screen ownership" });
   }
 };
+
+// ✅ Middleware to verify Customer Access Token
+export const verifyCustomer = async (req, res, next) => {
+  const token = req.cookies.cusAccessToken
+  // console.log("Customer Access Token:", req.cookies);
+  
+  if (!token) {
+    return res.status(401).json({ message: 'Customer access token missing' })
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+
+    req.customer = decoded // attach decoded payload → { id, email, name }
+    next()
+  } catch (err) {
+    console.error('❌ Customer Token Error:', err.message)
+    return res.status(403).json({ message: 'Invalid or expired customer access token' })
+  }
+}
+
+// ✅ Middleware to verify Customer Refresh Token
+export const verifyCustomerRefreshToken = (req, res, next) => {
+  const token = req.cookies.cusRefreshToken
+  if (!token) {
+    return res.status(401).json({ message: 'Customer refresh token missing' })
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.REFRESH_SECRET)
+    req.customer = decoded // attach decoded payload → { id, email, name }
+    next()
+  } catch (err) {
+    console.error('❌ Customer Refresh Token Error:', err.message)
+    return res.status(403).json({ message: 'Invalid or expired customer refresh token' })
+  }
+}

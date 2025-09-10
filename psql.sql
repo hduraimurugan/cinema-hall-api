@@ -172,6 +172,10 @@ CREATE TABLE customers (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE customers
+ADD COLUMN district TEXT NOT NULL DEFAULT '',
+ADD COLUMN state TEXT NOT NULL DEFAULT '';
+
 
 -- Automatically update updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -198,3 +202,4 @@ CREATE TABLE otp_verifications (
   expires_at TIMESTAMPTZ NOT NULL, -- validity window
   CONSTRAINT fk_customer_email FOREIGN KEY (email) REFERENCES customers(email) ON DELETE CASCADE
 );
+
