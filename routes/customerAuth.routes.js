@@ -1,6 +1,16 @@
 import express from 'express'
-import { registerCustomer, loginCustomer, logoutCustomer, updateCustomerProfile, getCustomerMe, refreshCustomerToken } from '../controllers/customerAuth.Controller.js'
-import { verifyCustomer, verifyCustomerRefreshToken } from '../middleware/verifyCinemaAdmin.js'
+import {
+    registerCustomer,
+    loginCustomer,
+    logoutCustomer,
+    updateCustomerProfile,
+    getCustomerMe,
+    refreshCustomerToken
+} from '../controllers/customerAuth.Controller.js'
+import {
+    verifyCustomer,
+    verifyCustomerRefreshToken
+} from '../middleware/verifyCinemaAdmin.js'
 
 const router = express.Router()
 
@@ -8,7 +18,7 @@ const router = express.Router()
 router.post('/signup', registerCustomer)
 router.post('/login', loginCustomer)
 router.post('/logout', logoutCustomer)
-router.put('/update',verifyCustomer, updateCustomerProfile)
+router.put('/update', verifyCustomer, updateCustomerProfile)
 
 router.get('/me', verifyCustomer, getCustomerMe)
 router.post('/refresh', verifyCustomerRefreshToken, refreshCustomerToken)
