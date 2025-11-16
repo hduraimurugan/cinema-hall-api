@@ -146,8 +146,13 @@ export const getAllMovies = async (req, res) => {
         } = req.query
 
         // Make sure genre & language are arrays
+        // Handles: ?genre=Action, ?genre=Action&genre=Drama, or ?genre[]=Action&genre[]=Drama
         genre = Array.isArray(genre) ? genre : genre ? [genre] : []
         language = Array.isArray(language) ? language : language ? [language] : []
+
+        // Filter out empty strings
+        genre = genre.filter(g => g && g.trim() !== '')
+        language = language.filter(l => l && l.trim() !== '')
 
 
         const offset = (page - 1) * limit
