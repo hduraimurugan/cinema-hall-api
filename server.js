@@ -8,6 +8,7 @@ import pool from './db.js'; // DB connection
 import authRoutes from './routes/auth.routes.js';
 import screensRoutes from './routes/screens.routes.js';
 import moviesRoutes from './routes/movies.routes.js';
+import userMoviesRoutes from './routes/userMovies.routes.js';
 import showsRoutes from './routes/shows.routes.js';
 import userAuthRoutes from './routes/customerAuth.routes.js';
 import otpRoutes from './routes/otp.routes.js';
@@ -52,6 +53,8 @@ app.use('/api/otp', otpRoutes);
 app.use('/api/screens', screensRoutes);
 app.use('/api/movies', moviesRoutes);
 app.use('/api/shows', showsRoutes);
+
+app.use('/api/user/movies', userMoviesRoutes);
 
 // Ping route
 app.get('/ping', (req, res) => res.send('pong'));
