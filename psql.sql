@@ -139,14 +139,29 @@ CREATE TABLE show_booked_seats (
   row_label TEXT NOT NULL,            
   column_number INT NOT NULL,         
 
-  status TEXT NOT NULL DEFAULT 'in_booking'
-    CHECK (status IN ('in_booking', 'booked', 'reserved')),
+  -- ✅ Proper status lifecycle: AVAILABLE → HELD → BOOKED
+  status TEXT NOT NULL DEFAULT 'AVAILABLE'
+    CHECK (status IN ('AVAILABLE', 'HELD', 'BOOKED')),
 
+  -- ✅ Track who holds the seat
+  held_by UUID REFERENCES customers(id) ON DELETE SET NULL,
+
+  -- ✅ Hold expiration (5 minutes)
+  hold_expires_at TIMESTAMPTZ,
+
+  -- ✅ Booking timestamp
   booked_at TIMESTAMPTZ DEFAULT now(),
-  lock_expires_at TIMESTAMPTZ,
 
+  created_at TIMESTAMPTZ DEFAULT now(),
+
+  -- ✅ One seat per show (prevents double booking at DB level)
   UNIQUE (show_id, seat_id)
 );
+
+-- Index for fast expired hold queries
+CREATE INDEX idx_show_booked_seats_expires 
+  ON show_booked_seats(status, hold_expires_at) 
+  WHERE status = 'HELD';
 
 
 
@@ -157,8 +172,28 @@ CREATE TABLE bookings (
   seats JSONB NOT NULL, -- example: [{ row: "B", number: 4, type: "gold" }]
   total_amount NUMERIC(10, 2) NOT NULL,
   status TEXT DEFAULT 'booked', -- booked, cancelled, expired
+  payment_id TEXT, -- Razorpay payment_id
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+
+-- Payment orders tracking table (for Razorpay integration)
+CREATE TABLE payment_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id TEXT UNIQUE NOT NULL,  -- Razorpay order_id
+  show_id UUID REFERENCES shows(id) ON DELETE CASCADE,
+  customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
+  seats JSONB NOT NULL,
+  amount NUMERIC(10, 2) NOT NULL,
+  status TEXT NOT NULL DEFAULT 'created'
+    CHECK (status IN ('created', 'paid', 'failed', 'refunded')),
+  payment_id TEXT,  -- Razorpay payment_id (after success)
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Index for fast order lookup
+CREATE INDEX idx_payment_orders_order_id ON payment_orders(order_id);
 
 
 -- Table: customers (end-users who sign up)

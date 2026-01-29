@@ -12,6 +12,9 @@ import userMoviesRoutes from './routes/userMovies.routes.js';
 import showsRoutes from './routes/shows.routes.js';
 import userAuthRoutes from './routes/customerAuth.routes.js';
 import otpRoutes from './routes/otp.routes.js';
+import bookingRoutes from './routes/booking.routes.js';
+import paymentRoutes from './routes/payment.routes.js';
+import { cleanupExpiredHolds } from './controllers/booking.Controller.js';
 
 dotenv.config();
 
@@ -53,6 +56,8 @@ app.use('/api/otp', otpRoutes);
 app.use('/api/screens', screensRoutes);
 app.use('/api/movies', moviesRoutes);
 app.use('/api/shows', showsRoutes);
+app.use('/api/booking', bookingRoutes);
+app.use('/api/payment', paymentRoutes);
 
 app.use('/api/user/movies', userMoviesRoutes);
 
@@ -106,6 +111,11 @@ if (process.env.NODE_ENV !== 'production') {
   };
 
   startServer();
+
+  // Run cleanup every 30 seconds
+  setInterval(async () => {
+    await cleanupExpiredHolds();
+  }, 30000);
 
   process.on('unhandledRejection', (err) => {
     console.error('🔥 Unhandled Rejection:', err.message);
