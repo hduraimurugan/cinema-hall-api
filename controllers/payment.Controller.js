@@ -39,7 +39,7 @@ export const createOrder = async (req, res) => {
         const order = await razorpay.orders.create({
             amount: amount * 100, // Razorpay expects paise
             currency: "INR",
-            receipt: `booking_${show_id}_${Date.now()}`,
+            receipt: `TKT-${Date.now()}-${customer_id.substring(0, 8)}`, // Max 40 chars
             notes: {
                 show_id,
                 customer_id,
@@ -101,7 +101,8 @@ export const verifyPayment = async (req, res) => {
         }
 
         const order = orderResult.rows[0];
-        const seats = JSON.parse(order.seats);
+        // JSONB columns are already parsed by pg driver
+        const seats = Array.isArray(order.seats) ? order.seats : JSON.parse(order.seats);
 
         // Step 3: Confirm booking (atomic)
         const client = await db.connect();
@@ -118,10 +119,10 @@ export const verifyPayment = async (req, res) => {
             // Create booking record
             const bookingResult = await client.query(`
         INSERT INTO bookings 
-          (show_id, user_email, seats, total_amount, status, payment_id)
-        VALUES ($1, $2, $3, $4, 'booked', $5)
+          (show_id, customer_id, seats, total_amount, payment_status, payment_id)
+        VALUES ($1, $2, $3, $4, 'completed', $5)
         RETURNING *
-      `, [order.show_id, req.customer.email, order.seats, order.amount, razorpay_payment_id]);
+      `, [order.show_id, customer_id, seats, order.amount, razorpay_payment_id]);
 
             // Update payment order status
             await client.query(`
