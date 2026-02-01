@@ -28,7 +28,8 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
-  "https://cinema-hall-admin.vercel.app"
+  "https://cinema-hall-admin.vercel.app",
+  "https://cinimax-eta.vercel.app"
 ];
 
 // CORS middleware
