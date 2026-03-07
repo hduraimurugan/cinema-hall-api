@@ -3,16 +3,22 @@ import {
     holdSeats,
     confirmBooking,
     releaseSeats,
-    getBookingByPaymentId
+    getBookingByPaymentId,
+    getMyBookings,
+    getCinemaHallBookings
 } from "../controllers/booking.Controller.js";
-import { verifyCustomer } from "../middleware/verifyCinemaAdmin.js";
+import { verifyCustomer, verifyCinemaAdminAccessToken, verifyCinemaHall } from "../middleware/verifyCinemaAdmin.js";
 
 const router = express.Router();
 
-// All routes require customer authentication
+// Customer routes
 router.post("/hold", verifyCustomer, holdSeats);
 router.post("/confirm", verifyCustomer, confirmBooking);
 router.post("/release", verifyCustomer, releaseSeats);
 router.get("/by-payment/:payment_id", verifyCustomer, getBookingByPaymentId);
+router.get("/my-bookings", verifyCustomer, getMyBookings);
+
+// Admin routes
+router.get("/admin/all", verifyCinemaAdminAccessToken, verifyCinemaHall, getCinemaHallBookings);
 
 export default router;

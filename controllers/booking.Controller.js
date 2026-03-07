@@ -265,6 +265,116 @@ export const getBookingByPaymentId = async (req, res) => {
 
 
 /**
+ * ✅ GET MY BOOKINGS - List all bookings for the logged-in customer
+ *
+ * GET /api/booking/my-bookings
+ * Auth: Customer required
+ */
+export const getMyBookings = async (req, res) => {
+    const customer_id = req.customer.id;
+
+    try {
+        const result = await db.query(`
+      SELECT
+        b.*,
+        m.title AS movie_title,
+        sh.show_date,
+        sh.start_time,
+        sc.name AS screen_name,
+        ch.name AS cinema_hall_name,
+        ARRAY(
+          SELECT (seat_data->>'row') || (seat_data->>'column')
+          FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
+          WHERE seat_data->>'id' = ANY(b.seats)
+        ) AS seat_labels
+      FROM bookings b
+      JOIN shows sh ON sh.id = b.show_id
+      JOIN movies m ON m.id = sh.movie_id
+      JOIN screens sc ON sc.id = sh.screen_id
+      JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+      WHERE b.customer_id = $1
+      ORDER BY sh.show_date DESC, sh.start_time DESC
+    `, [customer_id]);
+
+        return res.status(200).json({ bookings: result.rows });
+    } catch (error) {
+        console.error("❌ Get my bookings error:", error);
+        return res.status(500).json({ error: "Failed to fetch bookings" });
+    }
+};
+
+
+/**
+ * ✅ GET CINEMA HALL BOOKINGS - List all bookings for admin's cinema hall
+ *
+ * GET /api/booking/admin/all
+ * Query params: date, search, status, page
+ * Auth: Admin + Cinema Hall required
+ */
+export const getCinemaHallBookings = async (req, res) => {
+    const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
+
+    if (!cinema_hall_id) {
+        return res.status(400).json({ error: "Cinema hall not found" });
+    }
+
+    const { date, search, status, page = 1 } = req.query;
+    const limit = 50;
+    const offset = (parseInt(page) - 1) * limit;
+
+    try {
+        const result = await db.query(`
+      SELECT
+        b.*,
+        m.title AS movie_title,
+        sh.show_date,
+        sh.start_time,
+        sc.name AS screen_name,
+        c.name AS customer_name,
+        c.email AS customer_email,
+        ARRAY(
+          SELECT (seat_data->>'row') || (seat_data->>'column')
+          FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
+          WHERE seat_data->>'id' = ANY(b.seats)
+        ) AS seat_labels
+      FROM bookings b
+      JOIN shows sh ON sh.id = b.show_id
+      JOIN movies m ON m.id = sh.movie_id
+      JOIN screens sc ON sc.id = sh.screen_id
+      JOIN customers c ON c.id = b.customer_id
+      WHERE sc.cinema_hall_id = $1
+        AND ($2::date IS NULL OR sh.show_date = $2)
+        AND ($3::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($3) || '%')
+        AND ($4::text IS NULL OR b.booking_status = $4)
+      ORDER BY b.created_at DESC
+      LIMIT $5 OFFSET $6
+    `, [cinema_hall_id, date || null, search || null, status || null, limit, offset]);
+
+        const countResult = await db.query(`
+      SELECT COUNT(*) AS total
+      FROM bookings b
+      JOIN shows sh ON sh.id = b.show_id
+      JOIN movies m ON m.id = sh.movie_id
+      JOIN screens sc ON sc.id = sh.screen_id
+      WHERE sc.cinema_hall_id = $1
+        AND ($2::date IS NULL OR sh.show_date = $2)
+        AND ($3::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($3) || '%')
+        AND ($4::text IS NULL OR b.booking_status = $4)
+    `, [cinema_hall_id, date || null, search || null, status || null]);
+
+        return res.status(200).json({
+            bookings: result.rows,
+            total: parseInt(countResult.rows[0].total),
+            page: parseInt(page),
+        });
+    } catch (error) {
+        console.error("❌ Get cinema hall bookings error:", error);
+        return res.status(500).json({ error: "Failed to fetch bookings" });
+    }
+};
+
+
+/**
  * ✅ CLEANUP EXPIRED HOLDS - Called by background job
  * 
  * This should be called every 30-60 seconds
