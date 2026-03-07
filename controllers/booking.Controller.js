@@ -224,6 +224,47 @@ export const releaseSeats = async (req, res) => {
 
 
 /**
+ * ✅ GET BOOKING BY PAYMENT ID
+ *
+ * GET /api/booking/by-payment/:payment_id
+ * Auth: Customer required
+ */
+export const getBookingByPaymentId = async (req, res) => {
+    const { payment_id } = req.params;
+    const customer_id = req.customer.id;
+
+    try {
+        const result = await db.query(`
+      SELECT
+        b.*,
+        m.title AS movie_title,
+        sh.show_date,
+        sh.start_time,
+        ARRAY(
+          SELECT (seat_data->>'row') || (seat_data->>'column')
+          FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
+          WHERE seat_data->>'id' = ANY(b.seats)
+        ) AS seat_labels
+      FROM bookings b
+      JOIN shows sh ON sh.id = b.show_id
+      JOIN movies m ON m.id = sh.movie_id
+      JOIN screens sc ON sc.id = sh.screen_id
+      WHERE b.payment_id = $1 AND b.customer_id = $2
+    `, [payment_id, customer_id]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: "Booking not found" });
+        }
+
+        return res.status(200).json({ booking: result.rows[0] });
+    } catch (error) {
+        console.error("❌ Get booking by payment ID error:", error);
+        return res.status(500).json({ error: "Failed to fetch booking" });
+    }
+};
+
+
+/**
  * ✅ CLEANUP EXPIRED HOLDS - Called by background job
  * 
  * This should be called every 30-60 seconds
