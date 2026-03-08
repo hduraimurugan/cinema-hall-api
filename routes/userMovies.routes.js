@@ -6,7 +6,8 @@ import {
   getMoviesByState,
   getMovieDetailsWithShowtimes,
   getDistrictsInState,
-  getCinemaHallsByLocation
+  getCinemaHallsByLocation,
+  getCinemaHallsWithShows
 } from '../controllers/userMovies.Controller.js'
 
 const router = express.Router()
@@ -37,5 +38,9 @@ router.get('/location/districts', getDistrictsInState)
 // Get all cinema halls in a location
 // Query params: ?district=Mumbai&state=Maharashtra
 router.get('/location/cinema-halls', getCinemaHallsByLocation)
+
+// Get cinema halls with movies and shows for a location and date
+// Query params: ?district=Mumbai&state=Maharashtra&date=2024-03-08
+router.get('/location/theatres', getCinemaHallsWithShows)
 
 export default router

@@ -406,6 +406,113 @@ export const getAllMovies = async (req, res) => {
     }
 }
 
+// 🔸 Get cinema halls with movies and shows for a location and date
+export const getCinemaHallsWithShows = async (req, res) => {
+    const client = await pool.connect()
+
+    try {
+        const { district, state, date } = req.query
+
+        if (!district || !state) {
+            return res.status(400).json({
+                message: "Both district and state are required"
+            })
+        }
+
+        const showDate = date || new Date().toISOString().split('T')[0]
+
+        const query = `
+            SELECT
+                ch.id AS hall_id, ch.name AS hall_name, ch.location, ch.district, ch.state,
+                m.id AS movie_id, m.title, m.poster_url, m.duration_mins, m.genre, m.language,
+                sc.id AS screen_id, sc.name AS screen_name,
+                sc.premium_price, sc.gold_price, sc.silver_price,
+                sh.id AS show_id, sh.start_time, sh.end_time,
+                sh.language_version, sh.show_date
+            FROM cinema_hall ch
+            INNER JOIN screens sc ON ch.id = sc.cinema_hall_id
+            INNER JOIN shows sh ON sc.id = sh.screen_id
+            INNER JOIN movies m ON sh.movie_id = m.id
+            WHERE ch.district = $1
+                AND ch.state = $2
+                AND sh.show_date = $3
+                AND sh.status = 'scheduled'
+                AND m.status = 'now_showing'
+            ORDER BY ch.name, m.title, sh.start_time
+        `
+
+        const result = await client.query(query, [district, state, showDate])
+
+        // Group by hall → movie → shows
+        const hallsMap = {}
+
+        result.rows.forEach(row => {
+            if (!hallsMap[row.hall_id]) {
+                hallsMap[row.hall_id] = {
+                    hall_id: row.hall_id,
+                    hall_name: row.hall_name,
+                    location: row.location,
+                    district: row.district,
+                    state: row.state,
+                    movies: {}
+                }
+            }
+
+            const hall = hallsMap[row.hall_id]
+
+            if (!hall.movies[row.movie_id]) {
+                hall.movies[row.movie_id] = {
+                    movie_id: row.movie_id,
+                    title: row.title,
+                    poster_url: row.poster_url,
+                    duration_mins: row.duration_mins,
+                    genre: row.genre,
+                    language: row.language,
+                    shows: []
+                }
+            }
+
+            hall.movies[row.movie_id].shows.push({
+                show_id: row.show_id,
+                screen_id: row.screen_id,
+                screen_name: row.screen_name,
+                start_time: row.start_time,
+                end_time: row.end_time,
+                show_date: row.show_date,
+                language_version: row.language_version,
+                pricing: {
+                    premium: row.premium_price,
+                    gold: row.gold_price,
+                    silver: row.silver_price
+                }
+            })
+        })
+
+        const cinema_halls = Object.values(hallsMap).map(hall => ({
+            ...hall,
+            movies: Object.values(hall.movies)
+        }))
+
+        res.status(200).json({
+            success: true,
+            count: cinema_halls.length,
+            district,
+            state,
+            date: showDate,
+            cinema_halls
+        })
+
+    } catch (error) {
+        console.error("Error fetching cinema halls with shows:", error.message)
+        res.status(500).json({
+            success: false,
+            message: "Server error while fetching theatres"
+        })
+    } finally {
+        client.release()
+    }
+}
+
 // 🔸 Get single movie detail by ID
 export const getMovieById = async (req, res) => {
     const client = await pool.connect()
