@@ -5,7 +5,8 @@ import {
     releaseSeats,
     getBookingByPaymentId,
     getMyBookings,
-    getCinemaHallBookings
+    getCinemaHallBookings,
+    verifyBookingById
 } from "../controllers/booking.Controller.js";
 import { verifyCustomer, verifyCinemaAdminAccessToken, verifyCinemaHall } from "../middleware/verifyCinemaAdmin.js";
 
@@ -20,5 +21,6 @@ router.get("/my-bookings", verifyCustomer, getMyBookings);
 
 // Admin routes
 router.get("/admin/all", verifyCinemaAdminAccessToken, verifyCinemaHall, getCinemaHallBookings);
+router.get("/admin/verify/:booking_id", verifyCinemaAdminAccessToken, verifyCinemaHall, verifyBookingById);
 
 export default router;

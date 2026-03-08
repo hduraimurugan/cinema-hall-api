@@ -375,8 +375,63 @@ export const getCinemaHallBookings = async (req, res) => {
 
 
 /**
+ * ✅ VERIFY BOOKING BY ID - Admin looks up a booking by its UUID (QR code scan)
+ *
+ * GET /api/booking/admin/verify/:booking_id
+ * Auth: Admin + Cinema Hall required
+ */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const verifyBookingById = async (req, res) => {
+    const { booking_id } = req.params;
+    const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
+
+    if (!cinema_hall_id) {
+        return res.status(400).json({ error: "Cinema hall not found" });
+    }
+
+    if (!UUID_REGEX.test(booking_id)) {
+        return res.status(400).json({ error: "Invalid booking ID format" });
+    }
+
+    try {
+        const result = await db.query(`
+      SELECT
+        b.*,
+        m.title AS movie_title,
+        sh.show_date,
+        sh.start_time,
+        sc.name AS screen_name,
+        c.name AS customer_name,
+        c.email AS customer_email,
+        ARRAY(
+          SELECT (seat_data->>'row') || (seat_data->>'column')
+          FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
+          WHERE seat_data->>'id' = ANY(b.seats)
+        ) AS seat_labels
+      FROM bookings b
+      JOIN shows sh ON sh.id = b.show_id
+      JOIN movies m ON m.id = sh.movie_id
+      JOIN screens sc ON sc.id = sh.screen_id
+      JOIN customers c ON c.id = b.customer_id
+      WHERE b.id = $1 AND sc.cinema_hall_id = $2
+    `, [booking_id, cinema_hall_id]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: "Booking not found" });
+        }
+
+        return res.status(200).json({ booking: result.rows[0] });
+    } catch (error) {
+        console.error("❌ Verify booking error:", error);
+        return res.status(500).json({ error: "Failed to verify booking" });
+    }
+};
+
+
+/**
  * ✅ CLEANUP EXPIRED HOLDS - Called by background job
- * 
+ *
  * This should be called every 30-60 seconds
  */
 export const cleanupExpiredHolds = async () => {
