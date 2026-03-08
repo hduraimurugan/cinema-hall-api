@@ -122,7 +122,7 @@ export const getMovieDetailsWithShowtimes = async (req, res) => {
 
     try {
         const { movieId } = req.params
-        const { district, state } = req.query
+        const { district, state, date } = req.query
 
         if (!movieId) {
             return res.status(400).json({
@@ -150,6 +150,8 @@ export const getMovieDetailsWithShowtimes = async (req, res) => {
         }
 
         // Get cinema halls and shows for this movie in the location
+        const showDate = date || new Date().toISOString().split('T')[0]
+
         const showsQuery = `
             SELECT
                 ch.id as cinema_hall_id,
@@ -175,11 +177,11 @@ export const getMovieDetailsWithShowtimes = async (req, res) => {
                 AND ch.district = $2
                 AND ch.state = $3
                 AND sh.status = 'scheduled'
-                AND sh.show_date >= CURRENT_DATE
-            ORDER BY ch.name, sh.show_date, sh.start_time
+                AND sh.show_date = $4
+            ORDER BY ch.name, sh.start_time
         `
 
-        const showsResult = await client.query(showsQuery, [movieId, district, state])
+        const showsResult = await client.query(showsQuery, [movieId, district, state, showDate])
 
         // Group shows by cinema hall
         const cinemaHalls = {}
