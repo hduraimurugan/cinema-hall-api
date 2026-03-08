@@ -15,13 +15,13 @@ export const createShow = async (req, res) => {
 
   console.log("Show Date", show_date);
   // 🧠 Ensure only date part is stored (drop time & timezone)
-  show_date = dayjs(show_date).format("YYYY-MM-DD");
+  const formattedDate = dayjs(show_date).format("YYYY-MM-DD");
 
   try {
     const result = await db.query(
       `INSERT INTO shows (movie_id, screen_id, show_date, start_time, end_time, language_version, price_override)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [movie_id, screen_id, show_date, start_time, end_time, language_version, price_override]
+      [movie_id, screen_id, formattedDate, start_time, end_time, language_version, price_override]
     );
 
     res.status(201).json({ show: result.rows[0] });
