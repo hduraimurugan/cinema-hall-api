@@ -318,7 +318,7 @@ export const getCinemaHallBookings = async (req, res) => {
         return res.status(400).json({ error: "Cinema hall not found" });
     }
 
-    const { date, search, status, page = 1 } = req.query;
+    const { date, search, status, screen_id, page = 1 } = req.query;
     const limit = 50;
     const offset = (parseInt(page) - 1) * limit;
 
@@ -346,9 +346,10 @@ export const getCinemaHallBookings = async (req, res) => {
         AND ($2::date IS NULL OR sh.show_date = $2)
         AND ($3::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($3) || '%')
         AND ($4::text IS NULL OR b.booking_status = $4)
+        AND ($5::uuid IS NULL OR sc.id = $5)
       ORDER BY b.created_at DESC
-      LIMIT $5 OFFSET $6
-    `, [cinema_hall_id, date || null, search || null, status || null, limit, offset]);
+      LIMIT $6 OFFSET $7
+    `, [cinema_hall_id, date || null, search || null, status || null, screen_id || null, limit, offset]);
 
         const countResult = await db.query(`
       SELECT COUNT(*) AS total
@@ -360,7 +361,8 @@ export const getCinemaHallBookings = async (req, res) => {
         AND ($2::date IS NULL OR sh.show_date = $2)
         AND ($3::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($3) || '%')
         AND ($4::text IS NULL OR b.booking_status = $4)
-    `, [cinema_hall_id, date || null, search || null, status || null]);
+        AND ($5::uuid IS NULL OR sc.id = $5)
+    `, [cinema_hall_id, date || null, search || null, status || null, screen_id || null]);
 
         return res.status(200).json({
             bookings: result.rows,
