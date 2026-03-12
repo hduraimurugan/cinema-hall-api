@@ -300,7 +300,7 @@ async function handleOrderPaid(order) {
  * Auth: Admin + CinemaHall required
  */
 export const getPaymentOrders = async (req, res) => {
-    const cinema_hall_id = req.cinemaHall.id;
+    const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
     const { date, status, customer, movie, page = 1 } = req.query;
     const limit = 50;
     const offset = (parseInt(page) - 1) * limit;
