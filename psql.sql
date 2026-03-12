@@ -71,7 +71,7 @@ CREATE TABLE shows (
   start_time TIME NOT NULL,
   end_time TIME NOT NULL,
 
-  status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'cancelled', 'completed')),
+  status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'running', 'cancelled', 'completed')),
 
   language_version TEXT NOT NULL DEFAULT 'Original',
 
@@ -210,6 +210,12 @@ CREATE TABLE customers (
 ALTER TABLE customers
 ADD COLUMN district TEXT NOT NULL DEFAULT '',
 ADD COLUMN state TEXT NOT NULL DEFAULT '';
+
+
+-- Migration: add 'running' to shows status check constraint
+ALTER TABLE shows DROP CONSTRAINT shows_status_check;
+ALTER TABLE shows ADD CONSTRAINT shows_status_check
+  CHECK (status IN ('scheduled', 'running', 'cancelled', 'completed'));
 
 
 -- Automatically update updated_at
