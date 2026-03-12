@@ -15,6 +15,7 @@ import otpRoutes from './routes/otp.routes.js';
 import bookingRoutes from './routes/booking.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
 import { cleanupExpiredHolds } from './controllers/booking.Controller.js';
+import { updateShowStatuses } from './controllers/shows.Controller.js';
 
 dotenv.config();
 
@@ -117,6 +118,11 @@ if (process.env.NODE_ENV !== 'production') {
   setInterval(async () => {
     await cleanupExpiredHolds();
   }, 30000);
+
+  // Run show status update every 60 seconds
+  setInterval(async () => {
+    await updateShowStatuses();
+  }, 60000);
 
   process.on('unhandledRejection', (err) => {
     console.error('🔥 Unhandled Rejection:', err.message);

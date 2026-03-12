@@ -372,4 +372,34 @@ export const getShowById = async (req, res) => {
   }
 };
 
+// Background job: auto-update show statuses based on current time (IST)
+export const updateShowStatuses = async () => {
+  try {
+    const runningResult = await db.query(`
+      UPDATE shows SET status = 'running'
+      WHERE status = 'scheduled'
+        AND show_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        AND start_time <= (NOW() AT TIME ZONE 'Asia/Kolkata')::time
+        AND end_time > (NOW() AT TIME ZONE 'Asia/Kolkata')::time
+    `);
+
+    const completedResult = await db.query(`
+      UPDATE shows SET status = 'completed'
+      WHERE status IN ('scheduled', 'running')
+        AND (
+          show_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+          OR (
+            show_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+            AND end_time <= (NOW() AT TIME ZONE 'Asia/Kolkata')::time
+          )
+        )
+    `);
+
+    if (runningResult.rowCount > 0 || completedResult.rowCount > 0) {
+      console.log(`🎬 Shows updated: ${runningResult.rowCount} → running, ${completedResult.rowCount} → completed`);
+    }
+  } catch (error) {
+    console.error('❌ Show status update error:', error);
+  }
+};
 
