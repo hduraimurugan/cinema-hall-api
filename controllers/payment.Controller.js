@@ -290,3 +290,81 @@ async function handleOrderPaid(order) {
     // Same as handlePaymentCaptured - acts as backup
     console.log(`📦 Order ${order.id} marked as paid`);
 }
+
+
+/**
+ * ✅ GET PAYMENT ORDERS (Admin) - List all payment orders for the cinema hall
+ *
+ * GET /api/payment/admin/orders
+ * Query: date, status, customer, movie, page
+ * Auth: Admin + CinemaHall required
+ */
+export const getPaymentOrders = async (req, res) => {
+    const cinema_hall_id = req.cinemaHall.id;
+    const { date, status, customer, movie, page = 1 } = req.query;
+    const limit = 50;
+    const offset = (parseInt(page) - 1) * limit;
+
+    try {
+        const params = [
+            cinema_hall_id,
+            date || null,
+            status || null,
+            customer || null,
+            movie || null,
+            offset,
+        ];
+
+        const ordersResult = await db.query(`
+            SELECT
+                po.*,
+                c.name AS customer_name,
+                c.email AS customer_email,
+                m.title AS movie_title,
+                sh.show_date,
+                sh.start_time,
+                sc.name AS screen_name,
+                ARRAY(
+                    SELECT (seat_data->>'row') || (seat_data->>'column')
+                    FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
+                    WHERE seat_data->>'id' = ANY(ARRAY(SELECT jsonb_array_elements_text(po.seats)))
+                ) AS seat_labels
+            FROM payment_orders po
+            JOIN customers c ON c.id = po.customer_id
+            JOIN shows sh ON sh.id = po.show_id
+            JOIN movies m ON m.id = sh.movie_id
+            JOIN screens sc ON sc.id = sh.screen_id
+            WHERE sc.cinema_hall_id = $1
+                AND ($2::date IS NULL OR po.created_at::date = $2::date)
+                AND ($3::text IS NULL OR po.status = $3)
+                AND ($4::text IS NULL OR LOWER(c.name) LIKE '%' || LOWER($4) || '%' OR LOWER(c.email) LIKE '%' || LOWER($4) || '%')
+                AND ($5::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($5) || '%')
+            ORDER BY po.created_at DESC
+            LIMIT ${limit} OFFSET $6
+        `, params);
+
+        const countResult = await db.query(`
+            SELECT COUNT(*) AS total
+            FROM payment_orders po
+            JOIN customers c ON c.id = po.customer_id
+            JOIN shows sh ON sh.id = po.show_id
+            JOIN movies m ON m.id = sh.movie_id
+            JOIN screens sc ON sc.id = sh.screen_id
+            WHERE sc.cinema_hall_id = $1
+                AND ($2::date IS NULL OR po.created_at::date = $2::date)
+                AND ($3::text IS NULL OR po.status = $3)
+                AND ($4::text IS NULL OR LOWER(c.name) LIKE '%' || LOWER($4) || '%' OR LOWER(c.email) LIKE '%' || LOWER($4) || '%')
+                AND ($5::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($5) || '%')
+        `, params.slice(0, 5));
+
+        return res.status(200).json({
+            orders: ordersResult.rows,
+            total: parseInt(countResult.rows[0].total),
+            page: parseInt(page),
+        });
+
+    } catch (error) {
+        console.error("❌ Get payment orders error:", error);
+        return res.status(500).json({ error: "Failed to fetch payment orders" });
+    }
+};

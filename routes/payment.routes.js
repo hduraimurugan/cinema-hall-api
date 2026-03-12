@@ -2,9 +2,10 @@ import express from "express";
 import {
     createOrder,
     verifyPayment,
-    handleWebhook
+    handleWebhook,
+    getPaymentOrders,
 } from "../controllers/payment.Controller.js";
-import { verifyCustomer } from "../middleware/verifyCinemaAdmin.js";
+import { verifyCustomer, verifyCinemaAdminAccessToken, verifyCinemaHall } from "../middleware/verifyCinemaAdmin.js";
 
 const router = express.Router();
 
@@ -14,5 +15,8 @@ router.post("/verify", verifyCustomer, verifyPayment);
 
 // Webhook route (no auth - verified by signature)
 router.post("/webhook", handleWebhook);
+
+// Admin routes
+router.get("/admin/orders", verifyCinemaAdminAccessToken, verifyCinemaHall, getPaymentOrders);
 
 export default router;
