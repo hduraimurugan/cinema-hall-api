@@ -107,19 +107,32 @@ export const editShow = async (req, res) => {
   const values = [];
 
   // Inside editShow
-  allowedFields.forEach((field, index) => {
+  let autoSchedule = false;
+
+  allowedFields.forEach((field) => {
     if (req.body[field] !== undefined) {
       let value = req.body[field];
 
       // 🔄 Normalize date string (if field is `show_date`)
       if (field === "show_date") {
         value = dayjs(value).format("YYYY-MM-DD");
+        // 📅 If new date >= today, mark for auto-scheduling
+        if (!dayjs(value).isBefore(dayjs().format("YYYY-MM-DD"))) {
+          autoSchedule = true;
+        }
       }
 
       fieldsToUpdate.push(`${field} = $${values.length + 1}`);
       values.push(value);
     }
   });
+
+  // 🗓️ Auto-reset status to 'scheduled' when show_date moves to today or future
+  // (only if the caller didn't explicitly provide a status override)
+  if (autoSchedule && req.body.status === undefined) {
+    fieldsToUpdate.push(`status = $${values.length + 1}`);
+    values.push("scheduled");
+  }
 
   if (fieldsToUpdate.length === 0) {
     return res.status(400).json({ error: "No valid fields provided to update." });
