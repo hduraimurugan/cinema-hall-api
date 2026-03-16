@@ -9,22 +9,23 @@ const razorpay = new Razorpay({
 
 /**
  * ✅ CREATE ORDER - Generate Razorpay order before payment
- * 
+ *
  * POST /api/payment/create-order
- * Body: { show_id, seats: ["A1", "A2"], amount }
+ * Body: { show_id, seats: ["seatId1", "seatId2"] }
  * Auth: Customer required
+ * Amount is calculated server-side (not trusted from frontend)
  */
 export const createOrder = async (req, res) => {
-    const { show_id, seats, amount } = req.body;
+    const { show_id, seats } = req.body;
     const customer_id = req.customer.id;
 
     try {
         // Verify seats are still held by this customer
         const holdCheck = await db.query(`
-      SELECT seat_id FROM show_booked_seats 
-      WHERE show_id = $1 
-        AND seat_id = ANY($2::text[]) 
-        AND held_by = $3 
+      SELECT seat_id FROM show_booked_seats
+      WHERE show_id = $1
+        AND seat_id = ANY($2::text[])
+        AND held_by = $3
         AND status = 'HELD'
         AND hold_expires_at > NOW()
     `, [show_id, seats, customer_id]);
@@ -35,9 +36,49 @@ export const createOrder = async (req, res) => {
             });
         }
 
-        // Create Razorpay order
+        // Fetch show + screen layout to calculate seat prices server-side
+        const showResult = await db.query(`
+      SELECT s.price_override, sc.layout
+      FROM shows s
+      JOIN screens sc ON sc.id = s.screen_id
+      WHERE s.id = $1
+    `, [show_id]);
+
+        if (showResult.rowCount === 0) {
+            return res.status(404).json({ error: "Show not found" });
+        }
+
+        const { price_override, layout } = showResult.rows[0];
+        const layoutSeats = layout?.seats || [];
+        const layoutPricing = layout?.pricing || {};
+
+        const seatTotal = seats.reduce((sum, seatId) => {
+            const seat = layoutSeats.find(s => s.id === seatId);
+            if (!seat) return sum;
+            const price = price_override?.[seat.type]
+                ? parseFloat(price_override[seat.type]) || 0
+                : parseFloat(layoutPricing[seat.type]) || 0;
+            return sum + price;
+        }, 0);
+
+        // Fetch convenience fee and GST from settings
+        const settingsResult = await db.query(
+            `SELECT key, value FROM settings WHERE key IN ('convenience_fee_per_ticket', 'gst_percentage')`
+        );
+        const settingsMap = {};
+        settingsResult.rows.forEach(({ key, value }) => {
+            settingsMap[key] = parseFloat(value) || 0;
+        });
+        const convenienceFeePerTicket = settingsMap['convenience_fee_per_ticket'] ?? 15;
+        const gstPercentage = settingsMap['gst_percentage'] ?? 18;
+
+        const convenienceTotal = seats.length * convenienceFeePerTicket;
+        const gstAmount = convenienceTotal * (gstPercentage / 100);
+        const grandTotal = seatTotal + convenienceTotal + gstAmount;
+
+        // Create Razorpay order with server-calculated amount
         const order = await razorpay.orders.create({
-            amount: amount * 100, // Razorpay expects paise
+            amount: Math.round(grandTotal * 100), // Razorpay expects paise
             currency: "INR",
             receipt: `TKT-${Date.now()}-${customer_id.substring(0, 8)}`, // Max 40 chars
             notes: {
@@ -47,12 +88,12 @@ export const createOrder = async (req, res) => {
             }
         });
 
-        // Store order in DB for tracking
+        // Store order in DB for tracking (amount in rupees)
         await db.query(`
-      INSERT INTO payment_orders 
+      INSERT INTO payment_orders
         (order_id, show_id, customer_id, seats, amount, status)
       VALUES ($1, $2, $3, $4, $5, 'created')
-    `, [order.id, show_id, customer_id, JSON.stringify(seats), amount]);
+    `, [order.id, show_id, customer_id, JSON.stringify(seats), grandTotal]);
 
         return res.status(200).json({
             order_id: order.id,
