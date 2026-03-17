@@ -223,6 +223,29 @@ export const createOffer = async (req, res) => {
 
 
 // ─────────────────────────────────────────────────────────────
+// GET /api/offers/:id  (superAdmin — single offer for edit page)
+// ─────────────────────────────────────────────────────────────
+export const getOfferById = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await db.query(`
+            SELECT o.*, ch.name AS cinema_hall_name
+            FROM offers o
+            LEFT JOIN cinema_hall ch ON ch.id = o.cinema_hall_id
+            WHERE o.id = $1
+        `, [id]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: "Offer not found." });
+        }
+        return res.status(200).json({ offer: result.rows[0] });
+    } catch (error) {
+        console.error("❌ getOfferById error:", error);
+        return res.status(500).json({ error: "Failed to fetch offer." });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────
 // PUT /api/offers/update/:id  (superAdmin)
 // ─────────────────────────────────────────────────────────────
 export const updateOffer = async (req, res) => {
