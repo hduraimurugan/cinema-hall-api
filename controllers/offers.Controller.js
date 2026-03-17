@@ -1,0 +1,381 @@
+import db from "../db.js";
+
+// ─────────────────────────────────────────────────────────────
+// Shared validation helper (used by validateOffer + createOrder)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Validates an offer code and calculates the discount amount.
+ * Returns { offer, discountAmount } on success, throws Error on failure.
+ *
+ * @param {object} params
+ * @param {string} params.offer_code
+ * @param {string} params.show_id
+ * @param {number} params.total_amount  - grand total BEFORE discount (ticket + conv + gst)
+ * @param {string} params.customer_id
+ */
+export async function validateOfferCode({ offer_code, show_id, total_amount, customer_id }) {
+    // 1. Find the offer (case-insensitive)
+    const offerResult = await db.query(
+        `SELECT * FROM offers WHERE UPPER(code) = UPPER($1)`,
+        [offer_code]
+    );
+
+    if (offerResult.rowCount === 0) {
+        throw Object.assign(new Error("Invalid offer code."), { status: 400 });
+    }
+
+    const offer = offerResult.rows[0];
+
+    // 2. is_active check
+    if (!offer.is_active) {
+        throw Object.assign(new Error("This offer is no longer active."), { status: 400 });
+    }
+
+    // 3. Expiry check
+    if (new Date(offer.valid_until) < new Date()) {
+        throw Object.assign(new Error("This offer has expired."), { status: 400 });
+    }
+
+    // 4. Minimum booking amount
+    if (parseFloat(total_amount) < parseFloat(offer.min_booking_amount)) {
+        throw Object.assign(
+            new Error(`Minimum booking amount of ₹${offer.min_booking_amount} required for this offer.`),
+            { status: 400 }
+        );
+    }
+
+    // 5. Hall-scoped offer check
+    if (offer.scope === 'hall') {
+        const showResult = await db.query(
+            `SELECT sc.cinema_hall_id FROM shows sh JOIN screens sc ON sc.id = sh.screen_id WHERE sh.id = $1`,
+            [show_id]
+        );
+        if (showResult.rowCount === 0) {
+            throw Object.assign(new Error("Show not found."), { status: 404 });
+        }
+        if (showResult.rows[0].cinema_hall_id !== offer.cinema_hall_id) {
+            throw Object.assign(new Error("This offer is not valid for this cinema hall."), { status: 400 });
+        }
+    }
+
+    // 6. User eligibility check
+    if (offer.user_eligibility === 'joined_after') {
+        const customerResult = await db.query(
+            `SELECT created_at FROM customers WHERE id = $1`,
+            [customer_id]
+        );
+        if (customerResult.rowCount === 0) {
+            throw Object.assign(new Error("Customer not found."), { status: 404 });
+        }
+        if (new Date(customerResult.rows[0].created_at) <= new Date(offer.user_joined_after)) {
+            throw Object.assign(
+                new Error("This offer is only available to users who joined after a specific date."),
+                { status: 400 }
+            );
+        }
+    }
+
+    // 7. Prior redemption check
+    const redemptionCheck = await db.query(
+        `SELECT id FROM offer_redemptions WHERE offer_id = $1 AND customer_id = $2`,
+        [offer.id, customer_id]
+    );
+    if (redemptionCheck.rowCount > 0) {
+        throw Object.assign(new Error("You have already used this offer."), { status: 400 });
+    }
+
+    // 8. Calculate discount
+    let discountAmount;
+    if (offer.discount_type === 'fixed') {
+        discountAmount = parseFloat(offer.discount_value);
+    } else {
+        const raw = parseFloat(total_amount) * (parseFloat(offer.discount_value) / 100);
+        discountAmount = offer.max_discount_amount
+            ? Math.min(raw, parseFloat(offer.max_discount_amount))
+            : raw;
+    }
+    discountAmount = +discountAmount.toFixed(2);
+
+    // Discount cannot exceed total amount
+    discountAmount = Math.min(discountAmount, parseFloat(total_amount));
+
+    return { offer, discountAmount };
+}
+
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/offers/cinema-halls  (superAdmin — for the hall selector in create/edit form)
+// ─────────────────────────────────────────────────────────────
+export const getAllCinemaHalls = async (req, res) => {
+    try {
+        const result = await db.query(`SELECT id, name FROM cinema_hall ORDER BY name ASC`);
+        return res.status(200).json({ halls: result.rows });
+    } catch (error) {
+        console.error("❌ getAllCinemaHalls error:", error);
+        return res.status(500).json({ error: "Failed to fetch cinema halls." });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/offers  (superAdmin — all offers with filters)
+// ─────────────────────────────────────────────────────────────
+export const getAllOffers = async (req, res) => {
+    const { scope, is_active, search, page = 1 } = req.query;
+    const limit = 50;
+    const offset = (parseInt(page) - 1) * limit;
+
+    try {
+        const params = [
+            scope || null,
+            is_active !== undefined ? is_active : null,
+            search || null,
+            offset,
+        ];
+
+        const result = await db.query(`
+            SELECT o.*,
+                   ch.name AS cinema_hall_name
+            FROM offers o
+            LEFT JOIN cinema_hall ch ON ch.id = o.cinema_hall_id
+            WHERE ($1::text IS NULL OR o.scope = $1)
+              AND ($2::boolean IS NULL OR o.is_active = $2)
+              AND ($3::text IS NULL OR UPPER(o.code) LIKE '%' || UPPER($3) || '%'
+                                    OR LOWER(o.title) LIKE '%' || LOWER($3) || '%')
+            ORDER BY o.created_at DESC
+            LIMIT ${limit} OFFSET $4
+        `, params);
+
+        const countResult = await db.query(`
+            SELECT COUNT(*) AS total FROM offers o
+            WHERE ($1::text IS NULL OR o.scope = $1)
+              AND ($2::boolean IS NULL OR o.is_active = $2)
+              AND ($3::text IS NULL OR UPPER(o.code) LIKE '%' || UPPER($3) || '%'
+                                    OR LOWER(o.title) LIKE '%' || LOWER($3) || '%')
+        `, params.slice(0, 3));
+
+        return res.status(200).json({
+            offers: result.rows,
+            total: parseInt(countResult.rows[0].total),
+            page: parseInt(page),
+        });
+    } catch (error) {
+        console.error("❌ getAllOffers error:", error);
+        return res.status(500).json({ error: "Failed to fetch offers." });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/offers/create  (superAdmin)
+// ─────────────────────────────────────────────────────────────
+export const createOffer = async (req, res) => {
+    const admin_id = req.admin?.id;
+    const {
+        code, title, description,
+        discount_type, discount_value, max_discount_amount,
+        min_booking_amount,
+        is_active, valid_until,
+        scope, cinema_hall_id,
+        user_eligibility, user_joined_after,
+    } = req.body;
+
+    if (!code || !title || !discount_type || !discount_value || !valid_until) {
+        return res.status(400).json({ error: "code, title, discount_type, discount_value, and valid_until are required." });
+    }
+
+    if (!['percentage', 'fixed'].includes(discount_type)) {
+        return res.status(400).json({ error: "discount_type must be 'percentage' or 'fixed'." });
+    }
+
+    try {
+        const result = await db.query(`
+            INSERT INTO offers
+              (code, title, description, discount_type, discount_value, max_discount_amount,
+               min_booking_amount, is_active, valid_until, scope, cinema_hall_id,
+               user_eligibility, user_joined_after, created_by)
+            VALUES
+              (UPPER($1), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            RETURNING *
+        `, [
+            code, title, description || null,
+            discount_type, discount_value, max_discount_amount || null,
+            min_booking_amount || 0,
+            is_active !== undefined ? is_active : true,
+            valid_until,
+            scope || 'global',
+            scope === 'hall' ? cinema_hall_id : null,
+            user_eligibility || 'all',
+            user_eligibility === 'joined_after' ? user_joined_after : null,
+            admin_id || null,
+        ]);
+
+        return res.status(201).json({ offer: result.rows[0] });
+    } catch (error) {
+        if (error.code === '23505') {
+            return res.status(409).json({ error: "An offer with this code already exists." });
+        }
+        console.error("❌ createOffer error:", error);
+        return res.status(500).json({ error: "Failed to create offer." });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// PUT /api/offers/update/:id  (superAdmin)
+// ─────────────────────────────────────────────────────────────
+export const updateOffer = async (req, res) => {
+    const { id } = req.params;
+    const {
+        code, title, description,
+        discount_type, discount_value, max_discount_amount,
+        min_booking_amount, is_active, valid_until,
+        scope, cinema_hall_id,
+        user_eligibility, user_joined_after,
+    } = req.body;
+
+    try {
+        const result = await db.query(`
+            UPDATE offers SET
+                code = UPPER($1),
+                title = $2,
+                description = $3,
+                discount_type = $4,
+                discount_value = $5,
+                max_discount_amount = $6,
+                min_booking_amount = $7,
+                is_active = $8,
+                valid_until = $9,
+                scope = $10,
+                cinema_hall_id = $11,
+                user_eligibility = $12,
+                user_joined_after = $13,
+                updated_at = NOW()
+            WHERE id = $14
+            RETURNING *
+        `, [
+            code, title, description || null,
+            discount_type, discount_value, max_discount_amount || null,
+            min_booking_amount || 0,
+            is_active,
+            valid_until,
+            scope || 'global',
+            scope === 'hall' ? cinema_hall_id : null,
+            user_eligibility || 'all',
+            user_eligibility === 'joined_after' ? user_joined_after : null,
+            id,
+        ]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: "Offer not found." });
+        }
+        return res.status(200).json({ offer: result.rows[0] });
+    } catch (error) {
+        if (error.code === '23505') {
+            return res.status(409).json({ error: "An offer with this code already exists." });
+        }
+        console.error("❌ updateOffer error:", error);
+        return res.status(500).json({ error: "Failed to update offer." });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// DELETE /api/offers/delete/:id  (superAdmin)
+// ─────────────────────────────────────────────────────────────
+export const deleteOffer = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await db.query(`DELETE FROM offers WHERE id = $1 RETURNING id`, [id]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: "Offer not found." });
+        }
+        return res.status(200).json({ message: "Offer deleted." });
+    } catch (error) {
+        console.error("❌ deleteOffer error:", error);
+        return res.status(500).json({ error: "Failed to delete offer." });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/offers/active  (verifyCustomer — eligible offers for this user)
+// ─────────────────────────────────────────────────────────────
+export const getActiveOffers = async (req, res) => {
+    const customer_id = req.customer.id;
+
+    try {
+        // Get customer join date
+        const customerResult = await db.query(
+            `SELECT created_at FROM customers WHERE id = $1`,
+            [customer_id]
+        );
+        const customerJoinedAt = customerResult.rows[0]?.created_at;
+
+        // Get redeemed offer IDs for this customer
+        const redeemedResult = await db.query(
+            `SELECT offer_id FROM offer_redemptions WHERE customer_id = $1`,
+            [customer_id]
+        );
+        const redeemedIds = redeemedResult.rows.map(r => r.offer_id);
+
+        // Fetch all active, non-expired offers
+        const offersResult = await db.query(`
+            SELECT o.*, ch.name AS cinema_hall_name
+            FROM offers o
+            LEFT JOIN cinema_hall ch ON ch.id = o.cinema_hall_id
+            WHERE o.is_active = true
+              AND o.valid_until > NOW()
+            ORDER BY o.created_at DESC
+        `);
+
+        // Filter by user eligibility & redemption in JS (simpler than SQL for this logic)
+        const eligible = offersResult.rows.filter(offer => {
+            if (redeemedIds.includes(offer.id)) return false;
+            if (offer.user_eligibility === 'joined_after') {
+                if (!customerJoinedAt || new Date(customerJoinedAt) <= new Date(offer.user_joined_after)) {
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        return res.status(200).json({ offers: eligible });
+    } catch (error) {
+        console.error("❌ getActiveOffers error:", error);
+        return res.status(500).json({ error: "Failed to fetch offers." });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/offers/validate  (verifyCustomer — preview discount)
+// ─────────────────────────────────────────────────────────────
+export const validateOffer = async (req, res) => {
+    const customer_id = req.customer.id;
+    const { offer_code, show_id, total_amount } = req.body;
+
+    if (!offer_code || !show_id || total_amount === undefined) {
+        return res.status(400).json({ error: "offer_code, show_id, and total_amount are required." });
+    }
+
+    try {
+        const { offer, discountAmount } = await validateOfferCode({
+            offer_code,
+            show_id,
+            total_amount: parseFloat(total_amount),
+            customer_id,
+        });
+
+        return res.status(200).json({
+            offer_id: offer.id,
+            offer_code: offer.code,
+            offer_title: offer.title,
+            discount_amount: discountAmount,
+            final_amount: +(parseFloat(total_amount) - discountAmount).toFixed(2),
+        });
+    } catch (error) {
+        return res.status(error.status || 400).json({ error: error.message });
+    }
+};

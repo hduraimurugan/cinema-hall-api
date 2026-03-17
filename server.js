@@ -16,6 +16,7 @@ import bookingRoutes from './routes/booking.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
 import adsRoutes from './routes/ads.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
+import offersRoutes from './routes/offers.routes.js';
 import { cleanupExpiredHolds } from './controllers/booking.Controller.js';
 import { updateShowStatuses } from './controllers/shows.Controller.js';
 
@@ -66,6 +67,7 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/user/movies', userMoviesRoutes);
 app.use('/api/ads', adsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/offers', offersRoutes);
 
 // Ping route
 app.get('/ping', (req, res) => res.send('pong'));

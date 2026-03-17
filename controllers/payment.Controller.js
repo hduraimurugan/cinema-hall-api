@@ -1,6 +1,7 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import db from "../db.js";
+import { validateOfferCode } from "./offers.Controller.js";
 
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
@@ -16,7 +17,7 @@ const razorpay = new Razorpay({
  * Amount is calculated server-side (not trusted from frontend)
  */
 export const createOrder = async (req, res) => {
-    const { show_id, seats } = req.body;
+    const { show_id, seats, offer_code } = req.body;
     const customer_id = req.customer.id;
 
     try {
@@ -76,9 +77,29 @@ export const createOrder = async (req, res) => {
         const gstAmount = convenienceTotal * (gstPercentage / 100);
         const grandTotal = seatTotal + convenienceTotal + gstAmount;
 
+        // Apply offer discount if offer_code is provided (validated server-side)
+        let discountAmount = 0;
+        let validatedOfferCode = null;
+        if (offer_code) {
+            try {
+                const offerResult = await validateOfferCode({
+                    offer_code,
+                    show_id,
+                    total_amount: grandTotal,
+                    customer_id,
+                });
+                discountAmount = offerResult.discountAmount;
+                validatedOfferCode = offerResult.offer.code;
+            } catch (offerError) {
+                return res.status(offerError.status || 400).json({ error: offerError.message });
+            }
+        }
+
+        const finalAmount = +(grandTotal - discountAmount).toFixed(2);
+
         // Create Razorpay order with server-calculated amount
         const order = await razorpay.orders.create({
-            amount: Math.round(grandTotal * 100), // Razorpay expects paise
+            amount: Math.round(finalAmount * 100), // Razorpay expects paise
             currency: "INR",
             receipt: `TKT-${Date.now()}-${customer_id.substring(0, 8)}`, // Max 40 chars
             notes: {
@@ -91,9 +112,9 @@ export const createOrder = async (req, res) => {
         // Store order in DB for tracking (amount in rupees)
         await db.query(`
       INSERT INTO payment_orders
-        (order_id, show_id, customer_id, seats, amount, status)
-      VALUES ($1, $2, $3, $4, $5, 'created')
-    `, [order.id, show_id, customer_id, JSON.stringify(seats), grandTotal]);
+        (order_id, show_id, customer_id, seats, amount, offer_code, discount_amount, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'created')
+    `, [order.id, show_id, customer_id, JSON.stringify(seats), finalAmount, validatedOfferCode, discountAmount]);
 
         return res.status(200).json({
             order_id: order.id,
@@ -157,20 +178,36 @@ export const verifyPayment = async (req, res) => {
         WHERE show_id = $1 AND seat_id = ANY($2::text[]) AND held_by = $3
       `, [order.show_id, seats, customer_id]);
 
-            // Create booking record
+            // Create booking record (with offer info if applicable)
             const bookingResult = await client.query(`
-        INSERT INTO bookings 
-          (show_id, customer_id, seats, total_amount, payment_status, payment_id)
-        VALUES ($1, $2, $3, $4, 'completed', $5)
+        INSERT INTO bookings
+          (show_id, customer_id, seats, total_amount, payment_status, payment_id, offer_code, discount_amount)
+        VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7)
         RETURNING *
-      `, [order.show_id, customer_id, seats, order.amount, razorpay_payment_id]);
+      `, [order.show_id, customer_id, seats, order.amount, razorpay_payment_id,
+                order.offer_code || null, order.discount_amount || 0]);
 
             // Update payment order status
             await client.query(`
-        UPDATE payment_orders 
+        UPDATE payment_orders
         SET status = 'paid', payment_id = $2, updated_at = NOW()
         WHERE order_id = $1
       `, [razorpay_order_id, razorpay_payment_id]);
+
+            // Record offer redemption if an offer was applied
+            if (order.offer_code) {
+                const offerLookup = await db.query(
+                    `SELECT id FROM offers WHERE code = $1`,
+                    [order.offer_code]
+                );
+                if (offerLookup.rowCount > 0) {
+                    await client.query(`
+            INSERT INTO offer_redemptions (offer_id, customer_id, booking_id, discount_applied)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (offer_id, customer_id) DO NOTHING
+          `, [offerLookup.rows[0].id, customer_id, bookingResult.rows[0].id, order.discount_amount]);
+                }
+            }
 
             await client.query('COMMIT');
 
