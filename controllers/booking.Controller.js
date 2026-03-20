@@ -364,10 +364,32 @@ export const getCinemaHallBookings = async (req, res) => {
         AND ($5::uuid IS NULL OR sc.id = $5)
     `, [cinema_hall_id, date || null, search || null, status || null, screen_id || null]);
 
+        const statsResult = await db.query(`
+      SELECT
+        COALESCE(SUM(b.total_amount),    0)::numeric AS total_revenue,
+        COALESCE(SUM(b.convenience_fee), 0)::numeric AS total_convenience_fee,
+        COALESCE(SUM(b.gst_amount),      0)::numeric AS total_gst
+      FROM bookings b
+      JOIN shows sh  ON sh.id = b.show_id
+      JOIN movies m  ON m.id  = sh.movie_id
+      JOIN screens sc ON sc.id = sh.screen_id
+      WHERE sc.cinema_hall_id = $1
+        AND ($2::date IS NULL OR sh.show_date = $2)
+        AND ($3::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($3) || '%')
+        AND ($4::text IS NULL OR b.booking_status = $4)
+        AND ($5::uuid IS NULL OR sc.id = $5)
+    `, [cinema_hall_id, date || null, search || null, status || null, screen_id || null]);
+
+        const stats = statsResult.rows[0];
         return res.status(200).json({
             bookings: result.rows,
             total: parseInt(countResult.rows[0].total),
             page: parseInt(page),
+            stats: {
+                total_revenue: parseFloat(stats.total_revenue),
+                total_convenience_fee: parseFloat(stats.total_convenience_fee),
+                total_gst: parseFloat(stats.total_gst),
+            },
         });
     } catch (error) {
         console.error("❌ Get cinema hall bookings error:", error);

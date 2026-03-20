@@ -112,9 +112,10 @@ export const createOrder = async (req, res) => {
         // Store order in DB for tracking (amount in rupees)
         await db.query(`
       INSERT INTO payment_orders
-        (order_id, show_id, customer_id, seats, amount, offer_code, discount_amount, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'created')
-    `, [order.id, show_id, customer_id, JSON.stringify(seats), finalAmount, validatedOfferCode, discountAmount]);
+        (order_id, show_id, customer_id, seats, amount, convenience_fee, gst_amount, offer_code, discount_amount, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'created')
+    `, [order.id, show_id, customer_id, JSON.stringify(seats), finalAmount,
+        convenienceTotal, gstAmount, validatedOfferCode, discountAmount]);
 
         return res.status(200).json({
             order_id: order.id,
@@ -181,10 +182,12 @@ export const verifyPayment = async (req, res) => {
             // Create booking record (with offer info if applicable)
             const bookingResult = await client.query(`
         INSERT INTO bookings
-          (show_id, customer_id, seats, total_amount, payment_status, payment_id, offer_code, discount_amount)
-        VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7)
+          (show_id, customer_id, seats, total_amount, payment_status, payment_id,
+           convenience_fee, gst_amount, offer_code, discount_amount)
+        VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9)
         RETURNING *
       `, [order.show_id, customer_id, seats, order.amount, razorpay_payment_id,
+                order.convenience_fee || 0, order.gst_amount || 0,
                 order.offer_code || null, order.discount_amount || 0]);
 
             // Update payment order status
