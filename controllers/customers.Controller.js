@@ -13,7 +13,7 @@ export const getAllCustomers = async (req, res) => {
         `SELECT
           c.id, c.name, c.email, c.phone, c.district, c.state,
           c.is_verified, c.created_at,
-          (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.payment_status = 'paid')::int AS booking_count
+          (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.payment_status = 'completed')::int AS booking_count
         FROM customers c
         WHERE ($1::text IS NULL
           OR c.name ILIKE '%' || $1 || '%'
