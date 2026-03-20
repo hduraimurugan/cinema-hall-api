@@ -210,6 +210,52 @@ export const getCinemaAdminMe = async (req, res) => {
   }
 }
 
+// ✅ Get All Cinema Hall Admins (Super Admin only)
+export const getAllAdmins = async (req, res) => {
+  const { search, page = 1 } = req.query
+  const limit = 50
+  const offset = (parseInt(page) - 1) * limit
+  const searchParam = search?.trim() || null
+
+  try {
+    const [adminsResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT
+          a.id, a.name, a.email, a.phone, a.role, a.created_at,
+          h.id AS hall_id, h.name AS hall_name, h.location, h.district, h.state
+        FROM cinema_admin_user a
+        LEFT JOIN cinema_hall h ON h.admin_id = a.id
+        WHERE a.role != 'superAdmin'
+          AND ($1::text IS NULL
+            OR a.name ILIKE '%' || $1 || '%'
+            OR a.email ILIKE '%' || $1 || '%'
+            OR h.name ILIKE '%' || $1 || '%')
+        ORDER BY a.created_at DESC
+        LIMIT $2 OFFSET $3`,
+        [searchParam, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FROM cinema_admin_user a
+        LEFT JOIN cinema_hall h ON h.admin_id = a.id
+        WHERE a.role != 'superAdmin'
+          AND ($1::text IS NULL
+            OR a.name ILIKE '%' || $1 || '%'
+            OR a.email ILIKE '%' || $1 || '%'
+            OR h.name ILIKE '%' || $1 || '%')`,
+        [searchParam]
+      ),
+    ])
+
+    res.json({
+      admins: adminsResult.rows,
+      total: parseInt(countResult.rows[0].count),
+    })
+  } catch (err) {
+    console.error('❌ getAllAdmins error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch admins' })
+  }
+}
+
 // ✅ Logout
 export const logoutCinemaAdmin = async (req, res) => {
   try {

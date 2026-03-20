@@ -4,12 +4,14 @@ import {
   loginCinemaAdmin,
   logoutCinemaAdmin,
   refreshCinemaAdminToken,
-  getCinemaAdminMe
+  getCinemaAdminMe,
+  getAllAdmins
 } from '../controllers/auth.Controller.js'
 
 import {
   verifyCinemaAdminAccessToken,
-  verifyCinemaAdminRefreshToken
+  verifyCinemaAdminRefreshToken,
+  verifySuperAdmin
 } from '../middleware/verifyCinemaAdmin.js'
 
 const router = express.Router()
@@ -20,5 +22,6 @@ router.post('/logout', logoutCinemaAdmin)
 
 router.get('/me', verifyCinemaAdminAccessToken, getCinemaAdminMe)
 router.post('/refresh', verifyCinemaAdminRefreshToken, refreshCinemaAdminToken)
+router.get('/admins', verifySuperAdmin, getAllAdmins)
 
 export default router
