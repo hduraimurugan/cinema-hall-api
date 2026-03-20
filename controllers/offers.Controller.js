@@ -353,16 +353,21 @@ export const getActiveOffers = async (req, res) => {
             ORDER BY o.created_at DESC
         `);
 
-        // Filter by user eligibility & redemption in JS (simpler than SQL for this logic)
-        const eligible = offersResult.rows.filter(offer => {
-            if (redeemedIds.includes(offer.id)) return false;
-            if (offer.user_eligibility === 'joined_after') {
-                if (!customerJoinedAt || new Date(customerJoinedAt) <= new Date(offer.user_joined_after)) {
-                    return false;
+        // Filter by user eligibility; mark redeemed ones instead of removing them
+        const eligible = offersResult.rows
+            .filter(offer => {
+                if (offer.user_eligibility === 'joined_after') {
+                    if (!customerJoinedAt || new Date(customerJoinedAt) <= new Date(offer.user_joined_after)) {
+                        return false;
+                    }
                 }
-            }
-            return true;
-        });
+                return true;
+            })
+            .map(offer => ({
+                ...offer,
+                is_redeemed: redeemedIds.includes(offer.id),
+            }))
+            .sort((a, b) => a.is_redeemed - b.is_redeemed); // available first, redeemed last
 
         return res.status(200).json({ offers: eligible });
     } catch (error) {
