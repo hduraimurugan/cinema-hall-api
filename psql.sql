@@ -84,35 +84,40 @@ ADD CONSTRAINT unique_screen_showtime
 UNIQUE (screen_id, show_date, start_time);
 
 
+-- ✅ Fixed: handles midnight-crossing shows (e.g. 22:30–01:15)
+-- PostgreSQL's OVERLAPS swaps (end, start) when end < start, causing false positives.
+-- This version uses explicit interval logic instead.
 CREATE OR REPLACE FUNCTION prevent_overlapping_shows()
 RETURNS TRIGGER AS $$
+DECLARE
+  new_crosses_midnight BOOLEAN := NEW.end_time < NEW.start_time;
 BEGIN
   IF EXISTS (
     SELECT 1 FROM shows
     WHERE screen_id = NEW.screen_id
       AND show_date = NEW.show_date
+      AND id IS DISTINCT FROM NEW.id
       AND (
-        (NEW.start_time, NEW.end_time) OVERLAPS (start_time, end_time)
-      )
-  ) THEN
-    RAISE EXCEPTION 'Show overlaps with an existing show on the same screen.';
-  END IF;
+        CASE
+          -- Neither show crosses midnight: standard range overlap
+          WHEN NOT new_crosses_midnight AND end_time >= start_time THEN
+            NEW.start_time < end_time AND start_time < NEW.end_time
 
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+          -- NEW show crosses midnight (e.g. 22:30–01:15):
+          -- It covers [22:30, 24:00) ∪ [00:00, 01:15)
+          -- Conflicts with any show that starts at or after NEW.start_time
+          -- OR any show that ends at or before NEW.end_time
+          WHEN new_crosses_midnight AND end_time >= start_time THEN
+            start_time >= NEW.start_time OR end_time <= NEW.end_time
 
-CREATE OR REPLACE FUNCTION prevent_overlapping_shows()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM shows
-    WHERE screen_id = NEW.screen_id
-      AND show_date = NEW.show_date
-      AND (
-        (NEW.start_time, NEW.end_time) OVERLAPS (start_time, end_time)
+          -- Existing show crosses midnight: symmetric case
+          WHEN NOT new_crosses_midnight AND end_time < start_time THEN
+            NEW.start_time >= start_time OR NEW.end_time <= end_time
+
+          -- Both cross midnight — always overlap
+          ELSE TRUE
+        END
       )
-      AND (id IS DISTINCT FROM NEW.id)  -- ✅ Exclude same row during UPDATE
   ) THEN
     RAISE EXCEPTION 'Show overlaps with an existing show on the same screen.';
   END IF;

@@ -51,40 +51,48 @@ export const createMultipleShows = async (req, res) => {
   if (!Array.isArray(time_slots) || time_slots.length === 0)
     return res.status(400).json({ message: "At least one time slot is required" });
 
+  const client = await db.connect();
   try {
+    await client.query("BEGIN");
     const createdShows = [];
+    const skipped = [];
 
     for (const screen_id of screen_ids) {
       for (const show_date of dates) {
         for (const { start_time, end_time } of time_slots) {
           if (!start_time || !end_time) {
-            return res.status(400).json({ message: "Each time slot must include start_time and end_time" });
+            skipped.push({ show_date, start_time, end_time, reason: "Missing start_time or end_time" });
+            continue;
           }
-
-          const result = await db.query(
-            `INSERT INTO shows (movie_id, screen_id, show_date, start_time, end_time, language_version, price_override)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING *`,
-            [
-              movie_id,
-              screen_id,
-              show_date,
-              start_time,
-              end_time,
-              language_version,
-              price_override,
-            ]
-          );
-
-          createdShows.push(result.rows[0]);
+          try {
+            // Savepoint per insert — failures roll back only this row, not the whole batch
+            await client.query("SAVEPOINT sp_show");
+            const result = await client.query(
+              `INSERT INTO shows (movie_id, screen_id, show_date, start_time, end_time, language_version, price_override)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               RETURNING *`,
+              [movie_id, screen_id, show_date, start_time, end_time, language_version, price_override]
+            );
+            createdShows.push(result.rows[0]);
+          } catch (err) {
+            await client.query("ROLLBACK TO SAVEPOINT sp_show");
+            skipped.push({ show_date, start_time, end_time, reason: err.message });
+          }
         }
       }
     }
 
-    res.status(201).json({ shows: createdShows });
+    await client.query("COMMIT");
+
+    const skippedCount = skipped.length;
+    console.log(`✅ Bulk create: ${createdShows.length} created, ${skippedCount} skipped`);
+    res.status(201).json({ shows: createdShows, skipped });
   } catch (err) {
+    await client.query("ROLLBACK");
     console.error("❌ Error creating multiple shows:", err.message);
     res.status(400).json({ error: err.message });
+  } finally {
+    client.release();
   }
 };
 
