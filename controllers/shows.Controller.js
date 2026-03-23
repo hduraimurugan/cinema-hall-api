@@ -177,6 +177,25 @@ export const deleteShow = async (req, res) => {
 };
 
 
+// 4b. ❌ Bulk Delete Shows
+export const deleteMultipleShows = async (req, res) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ message: "At least one show ID is required" });
+
+  try {
+    const result = await db.query(
+      `DELETE FROM shows WHERE id = ANY($1::uuid[]) RETURNING id`,
+      [ids]
+    );
+    res.status(200).json({ deleted: result.rowCount, message: `${result.rowCount} show(s) deleted` });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+
 // 5. 📆 Get Shows by Date → Group by Movie
 export const getShowsByDate = async (req, res) => {
   const { date } = req.params;

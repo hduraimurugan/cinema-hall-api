@@ -4,6 +4,7 @@ import {
   createMultipleShows,
   editShow,
   deleteShow,
+  deleteMultipleShows,
   getShowsByDate,
   bookShow,
   getShowById
@@ -18,6 +19,7 @@ router.post("/bulk", verifyCinemaHall, verifyScreenOwnership, createMultipleShow
 router.put("/edit/:id", verifyCinemaHall, verifyScreenOwnership, editShow)
 
 router.delete("/delete/:id", verifyCinemaHall, deleteShow)
+router.delete("/bulk", verifyCinemaHall, deleteMultipleShows)
 router.get("/date/:date",verifyCinemaHall, getShowsByDate)
 
 router.get("/get/:id", getShowById)
