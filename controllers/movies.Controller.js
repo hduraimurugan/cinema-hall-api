@@ -11,7 +11,8 @@ export const addMovie = async (req, res) => {
         genre = [], // must be an array
         language = [], // must be an array
         release_date,
-        status = 'upcoming' // default status
+        status = 'upcoming', // default status
+        tmdb_id = null
     } = req.body
 
     const client = await pool.connect()
@@ -27,8 +28,9 @@ export const addMovie = async (req, res) => {
         genre,
         language,
         release_date,
-        status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        status,
+        tmdb_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
       RETURNING *
     `
         const values = [
@@ -40,7 +42,8 @@ export const addMovie = async (req, res) => {
             genre,
             language,
             release_date,
-            status
+            status,
+            tmdb_id
         ]
 
         const result = await client.query(insertQuery, values)
@@ -67,7 +70,8 @@ export const editMovie = async (req, res) => {
         'genre',
         'language',
         'release_date',
-        'status'
+        'status',
+        'tmdb_id'
     ]
 
     const fieldsToUpdate = Object.keys(updateFields).filter(field =>
@@ -283,6 +287,22 @@ export const updateMovieStatus = async (req, res) => {
     } catch (error) {
         console.error('Error updating status:', error.message)
         res.status(500).json({ message: 'Server error while updating status' })
+    } finally {
+        client.release()
+    }
+}
+
+// 🔹 Get all TMDB IDs of movies already in the DB (for duplicate detection)
+export const getMovieTmdbIds = async (req, res) => {
+    const client = await pool.connect()
+    try {
+        const result = await client.query(
+            'SELECT tmdb_id FROM movies WHERE tmdb_id IS NOT NULL'
+        )
+        res.json({ tmdb_ids: result.rows.map(r => r.tmdb_id) })
+    } catch (error) {
+        console.error('Error fetching tmdb ids:', error.message)
+        res.status(500).json({ message: 'Server error while fetching tmdb ids' })
     } finally {
         client.release()
     }

@@ -5,7 +5,8 @@ import {
   deleteMovie,
   getAllMovies,
   getMovieById,
-  updateMovieStatus
+  updateMovieStatus,
+  getMovieTmdbIds
 } from '../controllers/movies.Controller.js'
 
 import { verifySuperAdmin } from '../middleware/verifyCinemaAdmin.js'
@@ -15,6 +16,7 @@ const router = express.Router()
 router.post('/add', verifySuperAdmin, addMovie)
 router.put('/edit/:movieId', verifySuperAdmin, editMovie)
 router.delete('/delete/:movieId', verifySuperAdmin, deleteMovie)
+router.get('/tmdb-ids', verifySuperAdmin, getMovieTmdbIds) // must be before /:id
 router.get('/', getAllMovies)
 router.get("/:id", getMovieById); // GET /movies/:id
 router.patch('/:movieId/status', verifySuperAdmin, updateMovieStatus)
