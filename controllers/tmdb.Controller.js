@@ -81,6 +81,28 @@ export const searchTMDB = async (req, res) => {
     }
 }
 
+// 🔹 In Theatres — discover movies with theatrical release window (past 30 days → today)
+export const getTMDBInTheatres = async (req, res) => {
+    try {
+        const { page = 1, with_original_language } = req.query
+        const today = new Date().toISOString().slice(0, 10)
+        const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        const data = await tmdbFetch('/discover/movie', {
+            language: 'en-US',
+            sort_by: 'popularity.desc',
+            'primary_release_date.gte': from,
+            'primary_release_date.lte': today,
+            with_release_type: '2|3',
+            page,
+            with_original_language,
+        })
+        res.json(data)
+    } catch (error) {
+        console.error('TMDB in-theatres error:', error.message)
+        res.status(502).json({ message: error.message })
+    }
+}
+
 // 🔹 Single movie details (includes runtime + videos/trailers)
 export const getTMDBMovieDetails = async (req, res) => {
     try {

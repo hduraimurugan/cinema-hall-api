@@ -4,6 +4,7 @@ import {
     getTMDBNowPlaying,
     getTMDBUpcoming,
     getTMDBTopRated,
+    getTMDBInTheatres,
     searchTMDB,
     getTMDBMovieDetails,
 } from '../controllers/tmdb.Controller.js'
@@ -13,6 +14,7 @@ const router = express.Router()
 
 router.get('/popular', verifySuperAdmin, getTMDBPopular)
 router.get('/now-playing', verifySuperAdmin, getTMDBNowPlaying)
+router.get('/in-theatres', verifySuperAdmin, getTMDBInTheatres)
 router.get('/upcoming', verifySuperAdmin, getTMDBUpcoming)
 router.get('/top-rated', verifySuperAdmin, getTMDBTopRated)
 router.get('/search', verifySuperAdmin, searchTMDB)
