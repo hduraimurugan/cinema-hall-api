@@ -12,7 +12,10 @@ export const addMovie = async (req, res) => {
         language = [], // must be an array
         release_date,
         status = 'upcoming', // default status
-        tmdb_id = null
+        tmdb_id = null,
+        cast = [],
+        vote_average = null,
+        vote_count = null
     } = req.body
 
     const client = await pool.connect()
@@ -29,8 +32,11 @@ export const addMovie = async (req, res) => {
         language,
         release_date,
         status,
-        tmdb_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        tmdb_id,
+        "cast",
+        vote_average,
+        vote_count
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING *
     `
         const values = [
@@ -43,7 +49,10 @@ export const addMovie = async (req, res) => {
             language,
             release_date,
             status,
-            tmdb_id
+            tmdb_id,
+            JSON.stringify(cast),
+            vote_average,
+            vote_count
         ]
 
         const result = await client.query(insertQuery, values)
@@ -71,7 +80,10 @@ export const editMovie = async (req, res) => {
         'language',
         'release_date',
         'status',
-        'tmdb_id'
+        'tmdb_id',
+        'cast',
+        'vote_average',
+        'vote_count'
     ]
 
     const fieldsToUpdate = Object.keys(updateFields).filter(field =>
@@ -89,8 +101,9 @@ export const editMovie = async (req, res) => {
         const values = []
 
         fieldsToUpdate.forEach((field, i) => {
-            queryStr += `${field} = $${i + 1}, `
-            values.push(updateFields[field])
+            const col = field === 'cast' ? '"cast"' : field
+            queryStr += `${col} = $${i + 1}, `
+            values.push(field === 'cast' ? JSON.stringify(updateFields[field]) : updateFields[field])
         })
 
         queryStr = queryStr.slice(0, -2)

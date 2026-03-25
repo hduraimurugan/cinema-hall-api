@@ -103,13 +103,13 @@ export const getTMDBInTheatres = async (req, res) => {
     }
 }
 
-// 🔹 Single movie details (includes runtime + videos/trailers)
+// 🔹 Single movie details (includes runtime, videos/trailers, and cast)
 export const getTMDBMovieDetails = async (req, res) => {
     try {
         const { tmdbId } = req.params
         const data = await tmdbFetch(`/movie/${tmdbId}`, {
             language: 'en-US',
-            append_to_response: 'videos',
+            append_to_response: 'videos,credits',
         })
         res.json(data)
     } catch (error) {
