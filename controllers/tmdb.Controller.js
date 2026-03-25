@@ -7,7 +7,7 @@ const tmdbFetch = async (path, params = {}) => {
     })
     const response = await fetch(url.toString(), {
         headers: {
-            Authorization: `Bearer ${process.env.TMDB_READ_ACCESS_TOKEN}`,
+            Authorization: `Bearer ${process.env.TMDB_API_KEY}`,
             Accept: 'application/json',
         },
     })
