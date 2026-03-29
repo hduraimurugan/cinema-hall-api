@@ -78,6 +78,22 @@ app.use('/api/tmdb', tmdbRoutes);
 // Ping route
 app.get('/ping', (req, res) => res.send('pong'));
 
+// Cron route — triggered by Vercel Cron every minute in production
+app.get('/api/cron/jobs', async (req, res) => {
+  // Basic protection: Vercel sets this header on cron invocations
+  if (process.env.NODE_ENV === 'production' && req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    await cleanupExpiredHolds();
+    await updateShowStatuses();
+    res.status(200).json({ ok: true, time: new Date().toISOString() });
+  } catch (err) {
+    console.error('❌ Cron job error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Root
 app.get('/', async (req, res) => {
   const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
