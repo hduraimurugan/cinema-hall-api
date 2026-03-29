@@ -419,54 +419,47 @@ export const getShowById = async (req, res) => {
 };
 
 // Background job: auto-update show statuses based on current time (IST)
+// Shows that cross midnight (e.g. 10:30 PM + 3h49m → ends 2:19 AM next day) have
+// end_time < start_time. We compute the actual end timestamp by adding 1 day in that case.
 export const updateShowStatuses = async () => {
   try {
-    // booking_started → in_progress when show starts
+    const nowIst = `(NOW() AT TIME ZONE 'Asia/Kolkata')`;
+
+    // Actual end timestamp: if end_time < start_time the show crosses midnight → end is next day
+    const endTs = `
+      CASE WHEN end_time < start_time
+        THEN (show_date + INTERVAL '1 day')::timestamp + end_time
+        ELSE show_date::timestamp + end_time
+      END
+    `;
+
+    // booking_started → in_progress when show has started but not yet ended
     const inProgressResult = await db.query(`
       UPDATE shows SET status = 'in_progress'
       WHERE status = 'booking_started'
-        AND show_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-        AND start_time <= (NOW() AT TIME ZONE 'Asia/Kolkata')::time
-        AND end_time > (NOW() AT TIME ZONE 'Asia/Kolkata')::time
+        AND (show_date::timestamp + start_time) <= ${nowIst}
+        AND (${endTs}) > ${nowIst}
     `);
 
-    // in_progress → show_ended when show ends
+    // in_progress → show_ended when actual end timestamp has passed
     const endedResult = await db.query(`
       UPDATE shows SET status = 'show_ended'
       WHERE status = 'in_progress'
-        AND (
-          show_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-          OR (
-            show_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-            AND end_time <= (NOW() AT TIME ZONE 'Asia/Kolkata')::time
-          )
-        )
+        AND (${endTs}) <= ${nowIst}
     `);
 
-    // booking_started shows that passed end_time without being in_progress → show_ended
+    // booking_started shows that passed end_time without entering in_progress → show_ended
     const missedResult = await db.query(`
       UPDATE shows SET status = 'show_ended'
       WHERE status = 'booking_started'
-        AND (
-          show_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-          OR (
-            show_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-            AND end_time <= (NOW() AT TIME ZONE 'Asia/Kolkata')::time
-          )
-        )
+        AND (${endTs}) <= ${nowIst}
     `);
 
-    // scheduled shows past end_time (never opened for booking) → show_ended
+    // scheduled shows past actual end timestamp (never opened for booking) → show_ended
     const expiredResult = await db.query(`
       UPDATE shows SET status = 'show_ended'
       WHERE status = 'scheduled'
-        AND (
-          show_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-          OR (
-            show_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-            AND end_time <= (NOW() AT TIME ZONE 'Asia/Kolkata')::time
-          )
-        )
+        AND (${endTs}) <= ${nowIst}
     `);
 
     const totalEnded = endedResult.rowCount + missedResult.rowCount + expiredResult.rowCount;
