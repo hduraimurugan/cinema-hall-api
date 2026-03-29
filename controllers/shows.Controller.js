@@ -467,7 +467,12 @@ export const updateShowStatuses = async () => {
       console.log(`🎬 Shows updated: ${inProgressResult.rowCount} → in_progress, ${totalEnded} → show_ended`);
     }
   } catch (error) {
-    console.error('❌ Show status update error:', error);
+    const transient = ['ENOTFOUND', 'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED'];
+    if (transient.includes(error.code)) {
+      console.warn(`⚠️ Show status update skipped — DB unreachable (${error.code})`);
+    } else {
+      console.error('❌ Show status update error:', error);
+    }
   }
 };
 

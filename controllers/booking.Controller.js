@@ -473,7 +473,12 @@ export const cleanupExpiredHolds = async () => {
 
         return result.rowCount;
     } catch (error) {
-        console.error("❌ Cleanup error:", error);
+        const transient = ['ENOTFOUND', 'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED'];
+        if (transient.includes(error.code)) {
+            console.warn(`⚠️ Cleanup skipped — DB unreachable (${error.code})`);
+        } else {
+            console.error('❌ Cleanup error:', error);
+        }
         return 0;
     }
 };
