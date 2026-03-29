@@ -102,6 +102,7 @@ app.get('/api/cron/jobs', async (req, res) => {
   }
 });
 
+
 // Root
 app.get('/', async (req, res) => {
   const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
