@@ -32,7 +32,7 @@ export const getMoviesByLocation = async (req, res) => {
             INNER JOIN cinema_hall ch ON sc.cinema_hall_id = ch.id
             WHERE ch.district = $1
                 AND ch.state = $2
-                AND sh.status = 'scheduled'
+                AND sh.status = 'booking_started'
                 AND sh.show_date >= CURRENT_DATE
                 AND m.status = 'now_showing'
             ORDER BY m.release_date DESC
@@ -90,7 +90,7 @@ export const getMoviesByState = async (req, res) => {
             INNER JOIN screens sc ON sh.screen_id = sc.id
             INNER JOIN cinema_hall ch ON sc.cinema_hall_id = ch.id
             WHERE ch.state = $1
-                AND sh.status = 'scheduled'
+                AND sh.status = 'booking_started'
                 AND sh.show_date >= CURRENT_DATE
                 AND m.status = 'now_showing'
             ORDER BY m.release_date DESC
@@ -176,7 +176,7 @@ export const getMovieDetailsWithShowtimes = async (req, res) => {
             WHERE sh.movie_id = $1
                 AND ch.district = $2
                 AND ch.state = $3
-                AND sh.status = 'scheduled'
+                AND sh.status = 'booking_started'
                 AND sh.show_date = $4
             ORDER BY ch.name, sh.start_time
         `
@@ -251,7 +251,7 @@ export const getDistrictsInState = async (req, res) => {
             INNER JOIN screens sc ON ch.id = sc.cinema_hall_id
             INNER JOIN shows sh ON sc.id = sh.screen_id
             WHERE ch.state = $1
-                AND sh.status = 'scheduled'
+                AND sh.status = 'booking_started'
                 AND sh.show_date >= CURRENT_DATE
             ORDER BY ch.district
         `
@@ -300,7 +300,7 @@ export const getCinemaHallsByLocation = async (req, res) => {
             INNER JOIN shows sh ON sc.id = sh.screen_id
             WHERE ch.district = $1
                 AND ch.state = $2
-                AND sh.status = 'scheduled'
+                AND sh.status = 'booking_started'
                 AND sh.show_date >= CURRENT_DATE
             ORDER BY ch.name
         `
@@ -438,7 +438,7 @@ export const getCinemaHallsWithShows = async (req, res) => {
             WHERE ch.district = $1
                 AND ch.state = $2
                 AND sh.show_date = $3
-                AND sh.status = 'scheduled'
+                AND sh.status = 'booking_started'
                 AND m.status = 'now_showing'
             ORDER BY ch.name, m.title, sh.start_time
         `

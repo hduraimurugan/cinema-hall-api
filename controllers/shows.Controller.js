@@ -1,5 +1,11 @@
 import db from "../db.js"; // assumes you have a db instance (like pg-promise or pg-pool)
 import dayjs from 'dayjs';
+import Razorpay from "razorpay";
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
 
 // 1. ✅ Create Single Show
 export const createShow = async (req, res) => {
@@ -415,17 +421,19 @@ export const getShowById = async (req, res) => {
 // Background job: auto-update show statuses based on current time (IST)
 export const updateShowStatuses = async () => {
   try {
-    const runningResult = await db.query(`
-      UPDATE shows SET status = 'running'
-      WHERE status = 'scheduled'
+    // booking_started → in_progress when show starts
+    const inProgressResult = await db.query(`
+      UPDATE shows SET status = 'in_progress'
+      WHERE status = 'booking_started'
         AND show_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         AND start_time <= (NOW() AT TIME ZONE 'Asia/Kolkata')::time
         AND end_time > (NOW() AT TIME ZONE 'Asia/Kolkata')::time
     `);
 
-    const completedResult = await db.query(`
-      UPDATE shows SET status = 'completed'
-      WHERE status IN ('scheduled', 'running')
+    // in_progress → show_ended when show ends
+    const endedResult = await db.query(`
+      UPDATE shows SET status = 'show_ended'
+      WHERE status = 'in_progress'
         AND (
           show_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
           OR (
@@ -435,11 +443,183 @@ export const updateShowStatuses = async () => {
         )
     `);
 
-    if (runningResult.rowCount > 0 || completedResult.rowCount > 0) {
-      console.log(`🎬 Shows updated: ${runningResult.rowCount} → running, ${completedResult.rowCount} → completed`);
+    // booking_started shows that passed end_time without being in_progress → show_ended
+    const missedResult = await db.query(`
+      UPDATE shows SET status = 'show_ended'
+      WHERE status = 'booking_started'
+        AND (
+          show_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+          OR (
+            show_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+            AND end_time <= (NOW() AT TIME ZONE 'Asia/Kolkata')::time
+          )
+        )
+    `);
+
+    // scheduled shows past end_time (never opened for booking) → show_ended
+    const expiredResult = await db.query(`
+      UPDATE shows SET status = 'show_ended'
+      WHERE status = 'scheduled'
+        AND (
+          show_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+          OR (
+            show_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+            AND end_time <= (NOW() AT TIME ZONE 'Asia/Kolkata')::time
+          )
+        )
+    `);
+
+    const totalEnded = endedResult.rowCount + missedResult.rowCount + expiredResult.rowCount;
+    if (inProgressResult.rowCount > 0 || totalEnded > 0) {
+      console.log(`🎬 Shows updated: ${inProgressResult.rowCount} → in_progress, ${totalEnded} → show_ended`);
     }
   } catch (error) {
     console.error('❌ Show status update error:', error);
+  }
+};
+
+// Admin: Cancel a show — marks bookings cancelled and initiates Razorpay refunds
+export const cancelShow = async (req, res) => {
+  const { id } = req.params;
+  const allowedHallIds = Array.isArray(req.my_cinema_hall)
+    ? req.my_cinema_hall.map(hall => hall.id)
+    : [req.my_cinema_hall.id];
+
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Verify show belongs to admin's cinema hall
+    const showResult = await client.query(
+      `SELECT sh.id, sh.status FROM shows sh
+       JOIN screens sc ON sc.id = sh.screen_id
+       WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
+      [id, allowedHallIds]
+    );
+
+    if (showResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Show not found or unauthorized' });
+    }
+
+    const show = showResult.rows[0];
+    if (show.status === 'cancelled') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Show is already cancelled' });
+    }
+    if (show.status === 'show_ended') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Cannot cancel a show that has already ended' });
+    }
+
+    // Cancel the show
+    await client.query(`UPDATE shows SET status = 'cancelled' WHERE id = $1`, [id]);
+
+    // Find all paid bookings for this show
+    const bookingsResult = await client.query(
+      `SELECT id, payment_id, total_amount FROM bookings
+       WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+      [id]
+    );
+
+    if (bookingsResult.rowCount > 0) {
+      // Mark bookings as cancelled
+      await client.query(
+        `UPDATE bookings SET booking_status = 'cancelled'
+         WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+        [id]
+      );
+
+      // Mark payment_orders as refunded
+      const paymentIds = bookingsResult.rows.map(b => b.payment_id).filter(Boolean);
+      if (paymentIds.length > 0) {
+        await client.query(
+          `UPDATE payment_orders SET status = 'refunded' WHERE payment_id = ANY($1::text[])`,
+          [paymentIds]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+
+    // Initiate Razorpay refunds outside the DB transaction
+    const refundResults = [];
+    for (const booking of bookingsResult.rows) {
+      if (booking.payment_id) {
+        try {
+          await razorpay.payments.refund(booking.payment_id, {});
+          refundResults.push({ payment_id: booking.payment_id, status: 'refund_initiated' });
+        } catch (refundErr) {
+          console.error('❌ Razorpay refund error:', refundErr.message);
+          refundResults.push({ payment_id: booking.payment_id, status: 'refund_failed', error: refundErr.message });
+        }
+      }
+    }
+
+    res.status(200).json({
+      message: 'Show cancelled successfully',
+      bookings_cancelled: bookingsResult.rowCount,
+      refunds: refundResults,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('❌ cancelShow error:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+};
+
+// Admin: Open or revert booking status
+export const updateShowBookingStatus = async (req, res) => {
+  const { id } = req.params;
+  const { action } = req.body; // 'open' | 'revert'
+
+  const allowedHallIds = Array.isArray(req.my_cinema_hall)
+    ? req.my_cinema_hall.map(hall => hall.id)
+    : [req.my_cinema_hall.id];
+
+  try {
+    const showResult = await db.query(
+      `SELECT sh.id, sh.status FROM shows sh
+       JOIN screens sc ON sc.id = sh.screen_id
+       WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
+      [id, allowedHallIds]
+    );
+
+    if (showResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Show not found or unauthorized' });
+    }
+
+    const show = showResult.rows[0];
+
+    if (action === 'open') {
+      if (show.status !== 'scheduled') {
+        return res.status(400).json({ error: `Cannot open bookings for a show with status '${show.status}'` });
+      }
+      await db.query(`UPDATE shows SET status = 'booking_started' WHERE id = $1`, [id]);
+      return res.status(200).json({ message: 'Booking opened successfully', status: 'booking_started' });
+    }
+
+    if (action === 'revert') {
+      if (show.status !== 'booking_started') {
+        return res.status(400).json({ error: `Cannot revert a show with status '${show.status}'` });
+      }
+      const bookingCheck = await db.query(
+        `SELECT COUNT(*) FROM bookings WHERE show_id = $1 AND booking_status = 'confirmed'`,
+        [id]
+      );
+      if (parseInt(bookingCheck.rows[0].count) > 0) {
+        return res.status(400).json({ error: 'Cannot revert: confirmed bookings already exist for this show' });
+      }
+      await db.query(`UPDATE shows SET status = 'scheduled' WHERE id = $1`, [id]);
+      return res.status(200).json({ message: 'Show reverted to scheduled', status: 'scheduled' });
+    }
+
+    return res.status(400).json({ error: 'Invalid action. Use "open" or "revert"' });
+  } catch (err) {
+    console.error('❌ updateShowBookingStatus error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 };
 
