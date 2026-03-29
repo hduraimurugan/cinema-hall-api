@@ -10,6 +10,8 @@ import {
   getShowById,
   cancelShow,
   updateShowBookingStatus,
+  bulkCancelShows,
+  bulkOpenBooking,
 } from "../controllers/shows.Controller.js"
 import { verifyCinemaHall , verifyScreenOwnership } from "../middleware/verifyCinemaAdmin.js"
 
@@ -25,7 +27,9 @@ router.delete("/bulk", verifyCinemaHall, deleteMultipleShows)
 router.get("/date/:date",verifyCinemaHall, getShowsByDate)
 
 router.put("/cancel/:id", verifyCinemaHall, cancelShow)
+router.put("/bulk-cancel", verifyCinemaHall, bulkCancelShows)
 router.put("/booking-status/:id", verifyCinemaHall, updateShowBookingStatus)
+router.put("/bulk-booking-open", verifyCinemaHall, bulkOpenBooking)
 
 router.get("/get/:id", getShowById)
 router.post("/book/:showId",bookShow)

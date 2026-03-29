@@ -623,3 +623,143 @@ export const updateShowBookingStatus = async (req, res) => {
   }
 };
 
+// Admin: Bulk cancel shows — cancels each show and initiates Razorpay refunds
+export const bulkCancelShows = async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ error: 'No show IDs provided' });
+
+  const allowedHallIds = Array.isArray(req.my_cinema_hall)
+    ? req.my_cinema_hall.map(hall => hall.id)
+    : [req.my_cinema_hall.id];
+
+  const results = [];
+
+  for (const id of ids) {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+
+      const showResult = await client.query(
+        `SELECT sh.id, sh.status FROM shows sh
+         JOIN screens sc ON sc.id = sh.screen_id
+         WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
+        [id, allowedHallIds]
+      );
+
+      if (showResult.rowCount === 0) {
+        await client.query('ROLLBACK');
+        results.push({ id, success: false, error: 'Not found or unauthorized' });
+        continue;
+      }
+
+      const show = showResult.rows[0];
+      if (show.status === 'cancelled') {
+        await client.query('ROLLBACK');
+        results.push({ id, success: false, error: 'Already cancelled' });
+        continue;
+      }
+      if (show.status === 'show_ended') {
+        await client.query('ROLLBACK');
+        results.push({ id, success: false, error: 'Show already ended' });
+        continue;
+      }
+
+      await client.query(`UPDATE shows SET status = 'cancelled' WHERE id = $1`, [id]);
+
+      const bookingsResult = await client.query(
+        `SELECT id, payment_id, total_amount FROM bookings
+         WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+        [id]
+      );
+
+      if (bookingsResult.rowCount > 0) {
+        await client.query(
+          `UPDATE bookings SET booking_status = 'cancelled'
+           WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+          [id]
+        );
+        const paymentIds = bookingsResult.rows.map(b => b.payment_id).filter(Boolean);
+        if (paymentIds.length > 0) {
+          await client.query(
+            `UPDATE payment_orders SET status = 'refunded' WHERE payment_id = ANY($1::text[])`,
+            [paymentIds]
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+
+      // Razorpay refunds outside transaction
+      for (const booking of bookingsResult.rows) {
+        if (booking.payment_id) {
+          try {
+            await razorpay.payments.refund(booking.payment_id, {});
+          } catch (refundErr) {
+            console.error('❌ Razorpay refund error:', refundErr.message);
+          }
+        }
+      }
+
+      results.push({ id, success: true, bookings_cancelled: bookingsResult.rowCount });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      results.push({ id, success: false, error: err.message });
+    } finally {
+      client.release();
+    }
+  }
+
+  const succeeded = results.filter(r => r.success).length;
+  res.status(200).json({
+    message: `${succeeded} of ${ids.length} show(s) cancelled`,
+    results,
+  });
+};
+
+// Admin: Bulk open booking for multiple shows
+export const bulkOpenBooking = async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ error: 'No show IDs provided' });
+
+  const allowedHallIds = Array.isArray(req.my_cinema_hall)
+    ? req.my_cinema_hall.map(hall => hall.id)
+    : [req.my_cinema_hall.id];
+
+  const results = [];
+
+  for (const id of ids) {
+    try {
+      const showResult = await db.query(
+        `SELECT sh.id, sh.status FROM shows sh
+         JOIN screens sc ON sc.id = sh.screen_id
+         WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
+        [id, allowedHallIds]
+      );
+
+      if (showResult.rowCount === 0) {
+        results.push({ id, success: false, error: 'Not found or unauthorized' });
+        continue;
+      }
+
+      const show = showResult.rows[0];
+      if (show.status !== 'scheduled') {
+        results.push({ id, success: false, error: `Cannot open bookings (status: ${show.status})` });
+        continue;
+      }
+
+      await db.query(`UPDATE shows SET status = 'booking_started' WHERE id = $1`, [id]);
+      results.push({ id, success: true });
+    } catch (err) {
+      results.push({ id, success: false, error: err.message });
+    }
+  }
+
+  const succeeded = results.filter(r => r.success).length;
+  res.status(200).json({
+    message: `Booking opened for ${succeeded} of ${ids.length} show(s)`,
+    results,
+  });
+};
+
