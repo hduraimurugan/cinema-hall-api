@@ -609,7 +609,15 @@ export const updateShowBookingStatus = async (req, res) => {
       return res.status(200).json({ message: 'Show reverted to scheduled', status: 'scheduled' });
     }
 
-    return res.status(400).json({ error: 'Invalid action. Use "open" or "revert"' });
+    if (action === 'restore') {
+      if (show.status !== 'cancelled') {
+        return res.status(400).json({ error: `Cannot restore a show with status '${show.status}'` });
+      }
+      await db.query(`UPDATE shows SET status = 'scheduled' WHERE id = $1`, [id]);
+      return res.status(200).json({ message: 'Show restored to scheduled', status: 'scheduled' });
+    }
+
+    return res.status(400).json({ error: 'Invalid action. Use "open", "revert", or "restore"' });
   } catch (err) {
     console.error('❌ updateShowBookingStatus error:', err.message);
     res.status(500).json({ error: err.message });
@@ -706,6 +714,52 @@ export const bulkCancelShows = async (req, res) => {
   const succeeded = results.filter(r => r.success).length;
   res.status(200).json({
     message: `${succeeded} of ${ids.length} show(s) cancelled`,
+    results,
+  });
+};
+
+// Admin: Bulk restore cancelled shows back to scheduled
+export const bulkRestoreShows = async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ error: 'No show IDs provided' });
+
+  const allowedHallIds = Array.isArray(req.my_cinema_hall)
+    ? req.my_cinema_hall.map(hall => hall.id)
+    : [req.my_cinema_hall.id];
+
+  const results = [];
+
+  for (const id of ids) {
+    try {
+      const showResult = await db.query(
+        `SELECT sh.id, sh.status FROM shows sh
+         JOIN screens sc ON sc.id = sh.screen_id
+         WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
+        [id, allowedHallIds]
+      );
+
+      if (showResult.rowCount === 0) {
+        results.push({ id, success: false, error: 'Not found or unauthorized' });
+        continue;
+      }
+
+      const show = showResult.rows[0];
+      if (show.status !== 'cancelled') {
+        results.push({ id, success: false, error: `Cannot restore (status: ${show.status})` });
+        continue;
+      }
+
+      await db.query(`UPDATE shows SET status = 'scheduled' WHERE id = $1`, [id]);
+      results.push({ id, success: true });
+    } catch (err) {
+      results.push({ id, success: false, error: err.message });
+    }
+  }
+
+  const succeeded = results.filter(r => r.success).length;
+  res.status(200).json({
+    message: `${succeeded} of ${ids.length} show(s) restored to scheduled`,
     results,
   });
 };

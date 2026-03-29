@@ -12,6 +12,7 @@ import {
   updateShowBookingStatus,
   bulkCancelShows,
   bulkOpenBooking,
+  bulkRestoreShows,
 } from "../controllers/shows.Controller.js"
 import { verifyCinemaHall , verifyScreenOwnership } from "../middleware/verifyCinemaAdmin.js"
 
@@ -30,6 +31,7 @@ router.put("/cancel/:id", verifyCinemaHall, cancelShow)
 router.put("/bulk-cancel", verifyCinemaHall, bulkCancelShows)
 router.put("/booking-status/:id", verifyCinemaHall, updateShowBookingStatus)
 router.put("/bulk-booking-open", verifyCinemaHall, bulkOpenBooking)
+router.put("/bulk-restore", verifyCinemaHall, bulkRestoreShows)
 
 router.get("/get/:id", getShowById)
 router.post("/book/:showId",bookShow)
