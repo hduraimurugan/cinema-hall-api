@@ -80,9 +80,17 @@ app.get('/ping', (req, res) => res.send('pong'));
 
 // Cron route — triggered by Vercel Cron every minute in production
 app.get('/api/cron/jobs', async (req, res) => {
-  // Basic protection: Vercel sets this header on cron invocations
-  if (process.env.NODE_ENV === 'production' && req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  // Vercel automatically sends Authorization: Bearer <CRON_SECRET> on cron invocations.
+  // CRON_SECRET must be set in Vercel project environment variables.
+  if (process.env.NODE_ENV === 'production') {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      console.error('❌ CRON_SECRET env variable is not set');
+      return res.status(500).json({ error: 'Server misconfiguration: CRON_SECRET not set' });
+    }
+    if (req.headers['authorization'] !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
   }
   try {
     await cleanupExpiredHolds();
