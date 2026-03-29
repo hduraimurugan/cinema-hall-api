@@ -98,16 +98,25 @@ export const createOrder = async (req, res) => {
         const finalAmount = +(grandTotal - discountAmount).toFixed(2);
 
         // Create Razorpay order with server-calculated amount
-        const order = await razorpay.orders.create({
-            amount: Math.round(finalAmount * 100), // Razorpay expects paise
-            currency: "INR",
-            receipt: `TKT-${Date.now()}-${customer_id.substring(0, 8)}`, // Max 40 chars
-            notes: {
-                show_id,
-                customer_id,
-                seats: seats.join(",")
-            }
-        });
+        let order;
+        try {
+            order = await razorpay.orders.create({
+                amount: Math.round(finalAmount * 100), // Razorpay expects paise
+                currency: "INR",
+                receipt: `TKT-${Date.now()}-${customer_id.substring(0, 8)}`, // Max 40 chars
+                notes: {
+                    show_id,
+                    customer_id,
+                    seats: seats.join(",")
+                }
+            });
+        } catch (rzpErr) {
+            // SDK throws { statusCode, error } for HTTP errors, or a TypeError for network failures
+            const statusCode = rzpErr?.statusCode;
+            const description = rzpErr?.error?.description || rzpErr?.error?.code || rzpErr?.message;
+            console.error("❌ Razorpay order creation failed:", statusCode ?? "network error", description ?? rzpErr);
+            return res.status(502).json({ error: "Payment gateway error. Please try again." });
+        }
 
         // Store order in DB for tracking (amount in rupees)
         await db.query(`
