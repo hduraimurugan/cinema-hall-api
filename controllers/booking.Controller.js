@@ -470,6 +470,65 @@ export const verifyBookingById = async (req, res) => {
 
 
 /**
+ * ✅ GET BOOKING DETAILS BY ID - Customer views a single booking
+ *
+ * GET /api/booking/:booking_id
+ * Auth: Customer required
+ */
+export const getBookingDetails = async (req, res) => {
+    const { booking_id } = req.params;
+    const customer_id = req.customer.id;
+
+    if (!UUID_REGEX.test(booking_id)) {
+        return res.status(400).json({ error: "Invalid booking ID format" });
+    }
+
+    try {
+        const result = await db.query(`
+      SELECT
+        b.*,
+        m.title AS movie_title,
+        m.poster_url,
+        m.duration_mins,
+        m.genre,
+        sh.language_version AS language,
+        sh.show_date,
+        sh.start_time,
+        sc.name AS screen_name,
+        ch.name AS cinema_hall_name,
+        ARRAY(
+          SELECT (seat_data->>'row') || (seat_data->>'column')
+          FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
+          WHERE seat_data->>'id' = ANY(b.seats)
+        ) AS seat_labels,
+        r.refund_status,
+        r.razorpay_refund_id,
+        r.amount AS refund_amount,
+        r.initiated_at AS refund_initiated_at,
+        r.settled_at AS refund_settled_at,
+        r.failure_reason AS refund_failure_reason
+      FROM bookings b
+      JOIN shows sh ON sh.id = b.show_id
+      JOIN movies m ON m.id = sh.movie_id
+      JOIN screens sc ON sc.id = sh.screen_id
+      JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+      LEFT JOIN refunds r ON r.booking_id = b.id
+      WHERE b.id = $1 AND b.customer_id = $2
+    `, [booking_id, customer_id]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: "Booking not found" });
+        }
+
+        return res.status(200).json({ booking: result.rows[0] });
+    } catch (error) {
+        console.error("❌ Get booking details error:", error);
+        return res.status(500).json({ error: "Failed to fetch booking" });
+    }
+};
+
+
+/**
  * ✅ CLEANUP EXPIRED HOLDS - Called by background job
  *
  * This should be called every 30-60 seconds
