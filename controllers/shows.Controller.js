@@ -516,7 +516,7 @@ export const cancelShow = async (req, res) => {
     // Find all paid bookings for this show
     const bookingsResult = await client.query(
       `SELECT id, payment_id, total_amount FROM bookings
-       WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+       WHERE show_id = $1 AND payment_status = 'completed' AND booking_status != 'cancelled'`,
       [id]
     );
 
@@ -524,7 +524,7 @@ export const cancelShow = async (req, res) => {
       // Mark bookings as cancelled
       await client.query(
         `UPDATE bookings SET booking_status = 'cancelled'
-         WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+         WHERE show_id = $1 AND payment_status = 'completed' AND booking_status != 'cancelled'`,
         [id]
       );
 
@@ -686,14 +686,14 @@ export const bulkCancelShows = async (req, res) => {
 
       const bookingsResult = await client.query(
         `SELECT id, payment_id, total_amount FROM bookings
-         WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+         WHERE show_id = $1 AND payment_status = 'completed' AND booking_status != 'cancelled'`,
         [id]
       );
 
       if (bookingsResult.rowCount > 0) {
         await client.query(
           `UPDATE bookings SET booking_status = 'cancelled'
-           WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+           WHERE show_id = $1 AND payment_status = 'completed' AND booking_status != 'cancelled'`,
           [id]
         );
 
@@ -860,7 +860,7 @@ export const getShowBookingCount = async (req, res) => {
     const result = await db.query(
       `SELECT COUNT(*) AS booking_count, COALESCE(SUM(total_amount), 0) AS total_amount
        FROM bookings
-       WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+       WHERE show_id = $1 AND payment_status = 'completed' AND booking_status != 'cancelled'`,
       [id]
     );
 
