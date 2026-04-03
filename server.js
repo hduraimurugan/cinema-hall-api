@@ -20,6 +20,7 @@ import offersRoutes from './routes/offers.routes.js';
 import customersRoutes from './routes/customers.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import tmdbRoutes from './routes/tmdb.routes.js';
+import refundRoutes from './routes/refund.routes.js';
 import { cleanupExpiredHolds } from './controllers/booking.Controller.js';
 import { updateShowStatuses } from './controllers/shows.Controller.js';
 
@@ -74,6 +75,7 @@ app.use('/api/offers', offersRoutes);
 app.use('/api/customers', customersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/tmdb', tmdbRoutes);
+app.use('/api/refunds', refundRoutes);
 
 // Ping route
 app.get('/ping', (req, res) => res.send('pong'));
