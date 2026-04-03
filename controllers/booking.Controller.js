@@ -313,7 +313,7 @@ export const getMyBookings = async (req, res) => {
  * ✅ GET CINEMA HALL BOOKINGS - List all bookings for admin's cinema hall
  *
  * GET /api/booking/admin/all
- * Query params: date, search, status, page
+ * Query params: from_date, to_date, search, status, page
  * Auth: Admin + Cinema Hall required
  */
 export const getCinemaHallBookings = async (req, res) => {
@@ -323,7 +323,7 @@ export const getCinemaHallBookings = async (req, res) => {
         return res.status(400).json({ error: "Cinema hall not found" });
     }
 
-    const { date, search, status, screen_id, page = 1 } = req.query;
+    const { from_date, to_date, search, status, screen_id, page = 1 } = req.query;
     const limit = 50;
     const offset = (parseInt(page) - 1) * limit;
 
@@ -348,13 +348,14 @@ export const getCinemaHallBookings = async (req, res) => {
       JOIN screens sc ON sc.id = sh.screen_id
       JOIN customers c ON c.id = b.customer_id
       WHERE sc.cinema_hall_id = $1
-        AND ($2::date IS NULL OR sh.show_date = $2)
-        AND ($3::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($3) || '%')
-        AND ($4::text IS NULL OR b.booking_status = $4)
-        AND ($5::uuid IS NULL OR sc.id = $5)
+        AND ($2::date IS NULL OR sh.show_date >= $2)
+        AND ($3::date IS NULL OR sh.show_date <= $3)
+        AND ($4::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($4) || '%')
+        AND ($5::text IS NULL OR b.booking_status = $5)
+        AND ($6::uuid IS NULL OR sc.id = $6)
       ORDER BY b.created_at DESC
-      LIMIT $6 OFFSET $7
-    `, [cinema_hall_id, date || null, search || null, status || null, screen_id || null, limit, offset]);
+      LIMIT $7 OFFSET $8
+    `, [cinema_hall_id, from_date || null, to_date || null, search || null, status || null, screen_id || null, limit, offset]);
 
         const countResult = await db.query(`
       SELECT COUNT(*) AS total
@@ -363,11 +364,12 @@ export const getCinemaHallBookings = async (req, res) => {
       JOIN movies m ON m.id = sh.movie_id
       JOIN screens sc ON sc.id = sh.screen_id
       WHERE sc.cinema_hall_id = $1
-        AND ($2::date IS NULL OR sh.show_date = $2)
-        AND ($3::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($3) || '%')
-        AND ($4::text IS NULL OR b.booking_status = $4)
-        AND ($5::uuid IS NULL OR sc.id = $5)
-    `, [cinema_hall_id, date || null, search || null, status || null, screen_id || null]);
+        AND ($2::date IS NULL OR sh.show_date >= $2)
+        AND ($3::date IS NULL OR sh.show_date <= $3)
+        AND ($4::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($4) || '%')
+        AND ($5::text IS NULL OR b.booking_status = $5)
+        AND ($6::uuid IS NULL OR sc.id = $6)
+    `, [cinema_hall_id, from_date || null, to_date || null, search || null, status || null, screen_id || null]);
 
         const statsResult = await db.query(`
       SELECT
@@ -379,11 +381,12 @@ export const getCinemaHallBookings = async (req, res) => {
       JOIN movies m  ON m.id  = sh.movie_id
       JOIN screens sc ON sc.id = sh.screen_id
       WHERE sc.cinema_hall_id = $1
-        AND ($2::date IS NULL OR sh.show_date = $2)
-        AND ($3::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($3) || '%')
-        AND ($4::text IS NULL OR b.booking_status = $4)
-        AND ($5::uuid IS NULL OR sc.id = $5)
-    `, [cinema_hall_id, date || null, search || null, status || null, screen_id || null]);
+        AND ($2::date IS NULL OR sh.show_date >= $2)
+        AND ($3::date IS NULL OR sh.show_date <= $3)
+        AND ($4::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($4) || '%')
+        AND ($5::text IS NULL OR b.booking_status = $5)
+        AND ($6::uuid IS NULL OR sc.id = $6)
+    `, [cinema_hall_id, from_date || null, to_date || null, search || null, status || null, screen_id || null]);
 
         const stats = statsResult.rows[0];
         return res.status(200).json({

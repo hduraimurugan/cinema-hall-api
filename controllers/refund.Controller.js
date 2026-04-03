@@ -3,13 +3,13 @@ import db from "../db.js";
 /**
  * GET /api/refunds
  * Admin: list all refunds for the cinema hall with filters
- * Query: status, page
+ * Query: status, from_date, to_date, page
  */
 export const getRefunds = async (req, res) => {
   const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
   if (!cinema_hall_id) return res.status(400).json({ error: "Cinema hall not found" });
 
-  const { status, page = 1 } = req.query;
+  const { status, from_date, to_date, page = 1 } = req.query;
   const limit = 50;
   const offset = (parseInt(page, 10) - 1) * limit;
 
@@ -20,6 +20,16 @@ export const getRefunds = async (req, res) => {
   if (status && status !== "all") {
     conditions.push(`r.refund_status = $${idx++}`);
     params.push(status);
+  }
+
+  if (from_date) {
+    conditions.push(`r.initiated_at::date >= $${idx++}`);
+    params.push(from_date);
+  }
+
+  if (to_date) {
+    conditions.push(`r.initiated_at::date <= $${idx++}`);
+    params.push(to_date);
   }
 
   const where = conditions.join(" AND ");

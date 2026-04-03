@@ -405,19 +405,20 @@ async function handleOrderPaid(order) {
  * ✅ GET PAYMENT ORDERS (Admin) - List all payment orders for the cinema hall
  *
  * GET /api/payment/admin/orders
- * Query: date, status, customer, movie, page
+ * Query: from_date, to_date, status, customer, movie, page
  * Auth: Admin + CinemaHall required
  */
 export const getPaymentOrders = async (req, res) => {
     const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
-    const { date, status, customer, movie, page = 1 } = req.query;
+    const { from_date, to_date, status, customer, movie, page = 1 } = req.query;
     const limit = 50;
     const offset = (parseInt(page) - 1) * limit;
 
     try {
         const params = [
             cinema_hall_id,
-            date || null,
+            from_date || null,
+            to_date || null,
             status || null,
             customer || null,
             movie || null,
@@ -444,12 +445,13 @@ export const getPaymentOrders = async (req, res) => {
             JOIN movies m ON m.id = sh.movie_id
             JOIN screens sc ON sc.id = sh.screen_id
             WHERE sc.cinema_hall_id = $1
-                AND ($2::date IS NULL OR po.created_at::date = $2::date)
-                AND ($3::text IS NULL OR po.status = $3)
-                AND ($4::text IS NULL OR LOWER(c.name) LIKE '%' || LOWER($4) || '%' OR LOWER(c.email) LIKE '%' || LOWER($4) || '%')
-                AND ($5::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($5) || '%')
+                AND ($2::date IS NULL OR po.created_at::date >= $2::date)
+                AND ($3::date IS NULL OR po.created_at::date <= $3::date)
+                AND ($4::text IS NULL OR po.status = $4)
+                AND ($5::text IS NULL OR LOWER(c.name) LIKE '%' || LOWER($5) || '%' OR LOWER(c.email) LIKE '%' || LOWER($5) || '%')
+                AND ($6::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($6) || '%')
             ORDER BY po.created_at DESC
-            LIMIT ${limit} OFFSET $6
+            LIMIT ${limit} OFFSET $7
         `, params);
 
         const countResult = await db.query(`
@@ -460,11 +462,12 @@ export const getPaymentOrders = async (req, res) => {
             JOIN movies m ON m.id = sh.movie_id
             JOIN screens sc ON sc.id = sh.screen_id
             WHERE sc.cinema_hall_id = $1
-                AND ($2::date IS NULL OR po.created_at::date = $2::date)
-                AND ($3::text IS NULL OR po.status = $3)
-                AND ($4::text IS NULL OR LOWER(c.name) LIKE '%' || LOWER($4) || '%' OR LOWER(c.email) LIKE '%' || LOWER($4) || '%')
-                AND ($5::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($5) || '%')
-        `, params.slice(0, 5));
+                AND ($2::date IS NULL OR po.created_at::date >= $2::date)
+                AND ($3::date IS NULL OR po.created_at::date <= $3::date)
+                AND ($4::text IS NULL OR po.status = $4)
+                AND ($5::text IS NULL OR LOWER(c.name) LIKE '%' || LOWER($5) || '%' OR LOWER(c.email) LIKE '%' || LOWER($5) || '%')
+                AND ($6::text IS NULL OR LOWER(m.title) LIKE '%' || LOWER($6) || '%')
+        `, params.slice(0, 6));
 
         return res.status(200).json({
             orders: ordersResult.rows,
