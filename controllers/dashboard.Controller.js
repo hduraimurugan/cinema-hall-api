@@ -12,6 +12,8 @@ export const getDashboardStats = async (req, res) => {
         return res.status(400).json({ error: "Cinema hall not found" });
     }
 
+    const client = await db.connect();
+
     try {
         const [
             todayResult,
@@ -24,7 +26,7 @@ export const getDashboardStats = async (req, res) => {
             todayShowsResult,
         ] = await Promise.all([
             // a) Today's stats
-            db.query(`
+            client.query(`
                 SELECT
                     COUNT(*) AS today_bookings,
                     COALESCE(SUM(b.total_amount), 0)    AS today_revenue,
@@ -38,7 +40,7 @@ export const getDashboardStats = async (req, res) => {
             `, [cinema_hall_id]),
 
             // b) All-time totals
-            db.query(`
+            client.query(`
                 SELECT
                     COUNT(*) AS total_bookings,
                     COALESCE(SUM(b.total_amount), 0) AS total_revenue
@@ -49,10 +51,10 @@ export const getDashboardStats = async (req, res) => {
             `, [cinema_hall_id]),
 
             // c) Total customers
-            db.query(`SELECT COUNT(*) AS total_customers FROM customers`),
+            client.query(`SELECT COUNT(*) AS total_customers FROM customers`),
 
             // d) Active offers (hall-specific + global)
-            db.query(`
+            client.query(`
                 SELECT COUNT(*) AS active_offers
                 FROM offers
                 WHERE (cinema_hall_id = $1 OR scope = 'global')
@@ -61,12 +63,12 @@ export const getDashboardStats = async (req, res) => {
             `, [cinema_hall_id]),
 
             // e) Screens count
-            db.query(`
+            client.query(`
                 SELECT COUNT(*) AS total_screens FROM screens WHERE cinema_hall_id = $1
             `, [cinema_hall_id]),
 
             // f) Last 7 days revenue trend
-            db.query(`
+            client.query(`
                 SELECT
                     gs.date::date AS date,
                     COALESCE(SUM(b.total_amount), 0) AS revenue,
@@ -84,7 +86,7 @@ export const getDashboardStats = async (req, res) => {
             `, [cinema_hall_id]),
 
             // g) Recent 5 bookings
-            db.query(`
+            client.query(`
                 SELECT
                     b.id,
                     b.total_amount,
@@ -108,7 +110,7 @@ export const getDashboardStats = async (req, res) => {
             `, [cinema_hall_id]),
 
             // h) Today's shows with seat occupancy
-            db.query(`
+            client.query(`
                 SELECT
                     sh.id,
                     sh.start_time,
@@ -166,5 +168,7 @@ export const getDashboardStats = async (req, res) => {
     } catch (error) {
         console.error("❌ Dashboard stats error:", error);
         return res.status(500).json({ error: "Failed to fetch dashboard stats" });
+    } finally {
+        client.release();
     }
 };
