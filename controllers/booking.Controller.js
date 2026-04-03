@@ -286,12 +286,17 @@ export const getMyBookings = async (req, res) => {
           SELECT (seat_data->>'row') || (seat_data->>'column')
           FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
           WHERE seat_data->>'id' = ANY(b.seats)
-        ) AS seat_labels
+        ) AS seat_labels,
+        r.refund_status,
+        r.razorpay_refund_id,
+        r.initiated_at AS refund_initiated_at,
+        r.settled_at AS refund_settled_at
       FROM bookings b
       JOIN shows sh ON sh.id = b.show_id
       JOIN movies m ON m.id = sh.movie_id
       JOIN screens sc ON sc.id = sh.screen_id
       JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+      LEFT JOIN refunds r ON r.booking_id = b.id
       WHERE b.customer_id = $1
       ORDER BY sh.show_date DESC, sh.start_time DESC
     `, [customer_id]);

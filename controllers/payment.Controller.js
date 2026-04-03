@@ -284,6 +284,25 @@ export const handleWebhook = async (req, res) => {
                 await handleOrderPaid(payload.order.entity);
                 break;
 
+            case "refund.processed":
+                // Razorpay confirmed the refund was settled
+                await db.query(
+                    `UPDATE refunds SET refund_status = 'settled', settled_at = NOW()
+                     WHERE razorpay_refund_id = $1`,
+                    [payload.refund.entity.id]
+                );
+                console.log(`✅ Refund settled: ${payload.refund.entity.id}`);
+                break;
+
+            case "refund.failed":
+                await db.query(
+                    `UPDATE refunds SET refund_status = 'failed', failure_reason = $1
+                     WHERE razorpay_refund_id = $2`,
+                    [payload.refund.entity.description || 'Refund failed', payload.refund.entity.id]
+                );
+                console.log(`❌ Refund failed: ${payload.refund.entity.id}`);
+                break;
+
             default:
                 console.log(`Unhandled event: ${event}`);
         }

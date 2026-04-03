@@ -528,13 +528,15 @@ export const cancelShow = async (req, res) => {
         [id]
       );
 
-      // Mark payment_orders as refunded
-      const paymentIds = bookingsResult.rows.map(b => b.payment_id).filter(Boolean);
-      if (paymentIds.length > 0) {
-        await client.query(
-          `UPDATE payment_orders SET status = 'refunded' WHERE payment_id = ANY($1::text[])`,
-          [paymentIds]
-        );
+      // Create a refund record for each booking (status: initiated)
+      for (const booking of bookingsResult.rows) {
+        if (booking.payment_id) {
+          await client.query(
+            `INSERT INTO refunds (booking_id, payment_id, amount, refund_status)
+             VALUES ($1, $2, $3, 'initiated')`,
+            [booking.id, booking.payment_id, booking.total_amount]
+          );
+        }
       }
     }
 
@@ -545,10 +547,19 @@ export const cancelShow = async (req, res) => {
     for (const booking of bookingsResult.rows) {
       if (booking.payment_id) {
         try {
-          await razorpay.payments.refund(booking.payment_id, {});
+          const refundResponse = await razorpay.payments.refund(booking.payment_id, {});
+          // Store the Razorpay refund ID returned from the API
+          await db.query(
+            `UPDATE refunds SET razorpay_refund_id = $1 WHERE booking_id = $2`,
+            [refundResponse.id, booking.id]
+          );
           refundResults.push({ payment_id: booking.payment_id, status: 'refund_initiated' });
         } catch (refundErr) {
           console.error('❌ Razorpay refund error:', refundErr.message);
+          await db.query(
+            `UPDATE refunds SET refund_status = 'failed', failure_reason = $1 WHERE booking_id = $2`,
+            [refundErr.message, booking.id]
+          );
           refundResults.push({ payment_id: booking.payment_id, status: 'refund_failed', error: refundErr.message });
         }
       }
@@ -685,12 +696,16 @@ export const bulkCancelShows = async (req, res) => {
            WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
           [id]
         );
-        const paymentIds = bookingsResult.rows.map(b => b.payment_id).filter(Boolean);
-        if (paymentIds.length > 0) {
-          await client.query(
-            `UPDATE payment_orders SET status = 'refunded' WHERE payment_id = ANY($1::text[])`,
-            [paymentIds]
-          );
+
+        // Create a refund record for each booking (status: initiated)
+        for (const booking of bookingsResult.rows) {
+          if (booking.payment_id) {
+            await client.query(
+              `INSERT INTO refunds (booking_id, payment_id, amount, refund_status)
+               VALUES ($1, $2, $3, 'initiated')`,
+              [booking.id, booking.payment_id, booking.total_amount]
+            );
+          }
         }
       }
 
@@ -700,9 +715,17 @@ export const bulkCancelShows = async (req, res) => {
       for (const booking of bookingsResult.rows) {
         if (booking.payment_id) {
           try {
-            await razorpay.payments.refund(booking.payment_id, {});
+            const refundResponse = await razorpay.payments.refund(booking.payment_id, {});
+            await db.query(
+              `UPDATE refunds SET razorpay_refund_id = $1 WHERE booking_id = $2`,
+              [refundResponse.id, booking.id]
+            );
           } catch (refundErr) {
             console.error('❌ Razorpay refund error:', refundErr.message);
+            await db.query(
+              `UPDATE refunds SET refund_status = 'failed', failure_reason = $1 WHERE booking_id = $2`,
+              [refundErr.message, booking.id]
+            );
           }
         }
       }
@@ -813,5 +836,41 @@ export const bulkOpenBooking = async (req, res) => {
     message: `Booking opened for ${succeeded} of ${ids.length} show(s)`,
     results,
   });
+};
+
+// Admin: Get confirmed booking count + total refund amount for a show (used by cancel dialog)
+export const getShowBookingCount = async (req, res) => {
+  const { id } = req.params;
+  const allowedHallIds = Array.isArray(req.my_cinema_hall)
+    ? req.my_cinema_hall.map(hall => hall.id)
+    : [req.my_cinema_hall.id];
+
+  try {
+    const showResult = await db.query(
+      `SELECT sh.id FROM shows sh
+       JOIN screens sc ON sc.id = sh.screen_id
+       WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
+      [id, allowedHallIds]
+    );
+
+    if (showResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Show not found or unauthorized' });
+    }
+
+    const result = await db.query(
+      `SELECT COUNT(*) AS booking_count, COALESCE(SUM(total_amount), 0) AS total_amount
+       FROM bookings
+       WHERE show_id = $1 AND payment_status = 'paid' AND booking_status != 'cancelled'`,
+      [id]
+    );
+
+    res.status(200).json({
+      booking_count: parseInt(result.rows[0].booking_count, 10),
+      total_amount: parseFloat(result.rows[0].total_amount),
+    });
+  } catch (err) {
+    console.error('❌ getShowBookingCount error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 };
 
