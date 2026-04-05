@@ -1,7 +1,7 @@
 {
   "version": 2,
   "env": {
-    "NODE_OPTIONS": "--import=./instrument.js"
+    "NODE_OPTIONS": "--import=@sentry/node/preload"
   },
   "builds": [
     {

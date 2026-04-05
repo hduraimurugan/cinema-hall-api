@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npx nodemon server.js",
-    "start": "node --import=./instrument.js server.js"
+    "start": "node --import=@sentry/node/preload server.js"
   },
   "keywords": [],
   "author": "",

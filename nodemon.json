@@ -1,5 +1,5 @@
 {
-  "execArgs": ["--import=./instrument.js"],
+  "execArgs": ["--import=@sentry/node/preload"],
   "watch": ["."],
   "ext": "js",
   "ignore": ["node_modules"]

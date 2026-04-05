@@ -1,6 +1,8 @@
-// ⚠️ Sentry is initialized via `--import ./instrument.js` (Node flag), NOT a static import.
-// Static ESM imports are hoisted — by the time this file runs, express is already loaded.
-// The --import flag guarantees instrument.js executes before any module is resolved.
+// ⚠️ Sentry is initialized via `--import=@sentry/node/preload` (Node flag, set in NODE_OPTIONS).
+// That preload registers Sentry's module hooks before Express is resolved.
+// instrument.js is imported here only to call Sentry.init() with the project DSN/config.
+// This import also ensures instrument.js is included in the Vercel deployment bundle.
+import "./instrument.js";
 import express from 'express';
 import * as Sentry from "@sentry/node";
 import dotenv from 'dotenv';
