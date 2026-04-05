@@ -1,5 +1,8 @@
 {
   "version": 2,
+  "env": {
+    "NODE_OPTIONS": "--import=./instrument.js"
+  },
   "builds": [
     {
       "src": "server.js",

@@ -1,4 +1,6 @@
-import "./instrument.js"; // ⚠️ Must be the very first import — initializes Sentry
+// ⚠️ Sentry is initialized via `--import ./instrument.js` (Node flag), NOT a static import.
+// Static ESM imports are hoisted — by the time this file runs, express is already loaded.
+// The --import flag guarantees instrument.js executes before any module is resolved.
 import express from 'express';
 import * as Sentry from "@sentry/node";
 import dotenv from 'dotenv';

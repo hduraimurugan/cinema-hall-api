@@ -1,0 +1,6 @@
+{
+  "execArgs": ["--import=./instrument.js"],
+  "watch": ["."],
+  "ext": "js",
+  "ignore": ["node_modules"]
+}
