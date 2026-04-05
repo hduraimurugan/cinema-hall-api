@@ -1,8 +1,5 @@
 {
   "version": 2,
-  "env": {
-    "NODE_OPTIONS": "--import=@sentry/node/preload"
-  },
   "builds": [
     {
       "src": "server.js",
