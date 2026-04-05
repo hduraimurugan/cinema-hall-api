@@ -1,10 +1,13 @@
+import "./instrument.js"; // ⚠️ Must be the very first import — initializes Sentry
 import express from 'express';
+import * as Sentry from "@sentry/node";
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import cors from "cors";
 import chalk from 'chalk';
 import dayjs from 'dayjs';
 import pool from './db.js'; // DB connection
+import logger from './utils/logger.js';
 import authRoutes from './routes/auth.routes.js';
 import screensRoutes from './routes/screens.routes.js';
 import moviesRoutes from './routes/movies.routes.js';
@@ -80,6 +83,11 @@ app.use('/api/refunds', refundRoutes);
 // Ping route
 app.get('/ping', (req, res) => res.send('pong'));
 
+// Debug route — verify Sentry is working (remove after confirming in Sentry dashboard)
+app.get('/debug-sentry', function mainHandler(req, res) {
+  throw new Error('Sentry test error from cinema-hall-api');
+});
+
 // Cron route — triggered by Vercel Cron every minute in production
 app.get('/api/cron/jobs', async (req, res) => {
   // Vercel automatically sends Authorization: Bearer <CRON_SECRET> on cron invocations.
@@ -87,7 +95,7 @@ app.get('/api/cron/jobs', async (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     const cronSecret = process.env.CRON_SECRET;
     if (!cronSecret) {
-      console.error('❌ CRON_SECRET env variable is not set');
+      logger.error('❌ CRON_SECRET env variable is not set');
       return res.status(500).json({ error: 'Server misconfiguration: CRON_SECRET not set' });
     }
     if (req.headers['authorization'] !== `Bearer ${cronSecret}`) {
@@ -99,7 +107,7 @@ app.get('/api/cron/jobs', async (req, res) => {
     await updateShowStatuses();
     res.status(200).json({ ok: true, time: new Date().toISOString() });
   } catch (err) {
-    console.error('❌ Cron job error:', err.message);
+    logger.error('❌ Cron job error', { message: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -116,9 +124,12 @@ app.get('/', async (req, res) => {
   res.status(200).json(response);
 });
 
+// Sentry error handler — must come after all routes and before any other error middleware
+Sentry.setupExpressErrorHandler(app);
+
 // Global Error Handler
 app.use((err, req, res, next) => {
-  console.error('🔥 Global Error:', err.stack);
+  logger.error('Global Error', { message: err.message, stack: err.stack });
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
@@ -137,16 +148,15 @@ if (process.env.NODE_ENV !== 'production') {
     try {
       await pool.query('SELECT 1');
 
-      console.log(`\n${chalk.green.bold('✅ Postgres DB Connected via Neon')}`);
-      console.log(`${chalk.green('🚀 API Booted In:')} ${chalk.yellowBright(formatElapsedTime(appStartTime))}`);
-      console.log(`${chalk.cyan('🕒 Time:')} ${chalk.magenta(now)}\n`);
+      logger.info(`✅ Postgres DB Connected via Neon`);
+      logger.info(`🚀 API Booted In: ${formatElapsedTime(appStartTime)}`);
+      logger.info(`🕒 Time: ${now}`);
       app.listen(PORT, () => {
-        console.log(`${chalk.cyan('🔗 Server at:')} ${chalk.underline(`http://localhost:${PORT}`)}\n`);
+        logger.info(`🔗 Server at: http://localhost:${PORT}`);
       });
 
     } catch (err) {
-      console.error(chalk.red.bold('\n❌ Failed to connect to DB'));
-      console.error(chalk.red(err.message));
+      logger.error('❌ Failed to connect to DB', { message: err.message });
       process.exit(1);
     }
   };
@@ -164,7 +174,7 @@ if (process.env.NODE_ENV !== 'production') {
   }, 60000);
 
   process.on('unhandledRejection', (err) => {
-    console.error('🔥 Unhandled Rejection:', err.message);
+    logger.error('🔥 Unhandled Rejection', { message: err.message });
     setTimeout(() => process.exit(1), 5000);
   });
 }

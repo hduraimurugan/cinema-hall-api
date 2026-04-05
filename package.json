@@ -12,6 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@sentry/node": "^10.47.0",
     "bcrypt": "^6.0.0",
     "chalk": "^5.4.1",
     "cookie-parser": "^1.4.7",
@@ -22,6 +23,7 @@
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.16.2",
     "postgres": "^3.4.7",
-    "razorpay": "^2.9.6"
+    "razorpay": "^2.9.6",
+    "winston": "^3.19.0"
   }
 }

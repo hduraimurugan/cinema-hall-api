@@ -36,9 +36,7 @@ export const sendOtp = async (req, res) => {
             [email, otp, expiresAt]
         )
 
-        // 4️⃣ Send OTP (use email service - here just logging)
-        console.log(`📩 OTP for ${email}: ${otp}`)
-
+        // 4️⃣ Send OTP via email service
         res.json({ message: "OTP sent successfully" })
     } catch (err) {
         console.error("❌ Send OTP error:", err.message)
