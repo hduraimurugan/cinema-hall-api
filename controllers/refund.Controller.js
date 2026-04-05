@@ -9,8 +9,8 @@ export const getRefunds = async (req, res) => {
   const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
   if (!cinema_hall_id) return res.status(400).json({ error: "Cinema hall not found" });
 
-  const { status, from_date, to_date, page = 1 } = req.query;
-  const limit = 50;
+  const { status, from_date, to_date, page = 1, limit: limitParam = 10 } = req.query;
+  const limit = Math.min(Math.max(parseInt(limitParam, 10) || 10, 1), 100);
   const offset = (parseInt(page, 10) - 1) * limit;
 
   const conditions = ["ch.id = $1"];

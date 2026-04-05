@@ -323,8 +323,8 @@ export const getCinemaHallBookings = async (req, res) => {
         return res.status(400).json({ error: "Cinema hall not found" });
     }
 
-    const { from_date, to_date, search, status, screen_id, page = 1 } = req.query;
-    const limit = 50;
+    const { from_date, to_date, search, status, screen_id, page = 1, limit: limitParam = 10 } = req.query;
+    const limit = Math.min(Math.max(parseInt(limitParam) || 10, 1), 100);
     const offset = (parseInt(page) - 1) * limit;
 
     try {

@@ -2,8 +2,8 @@ import pool from '../db.js'
 
 // GET /api/customers — Super Admin only
 export const getAllCustomers = async (req, res) => {
-  const { search, page = 1 } = req.query
-  const limit = 50
+  const { search, page = 1, limit: limitParam = 10 } = req.query
+  const limit = Math.min(Math.max(parseInt(limitParam) || 10, 1), 100)
   const offset = (parseInt(page) - 1) * limit
   const searchParam = search?.trim() || null
 
