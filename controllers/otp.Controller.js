@@ -39,7 +39,7 @@ export const sendOtp = async (req, res) => {
         // 4️⃣ Send OTP via email service
         res.json({ message: "OTP sent successfully" })
     } catch (err) {
-        console.error("❌ Send OTP error:", err.message)
+        logger.error("❌ Send OTP error:", { message: err.message })
         res.status(500).json({ error: "Failed to send OTP" })
     }
 }
@@ -70,7 +70,7 @@ export const verifyOtp = async (req, res) => {
 
         res.json({ message: 'OTP verified successfully. Account activated!' })
     } catch (err) {
-        console.error('❌ Verify OTP error:', err.message)
+        logger.error('❌ Verify OTP error:', { message: err.message })
         res.status(500).json({ error: 'Failed to verify OTP' })
     }
 }

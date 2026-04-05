@@ -65,6 +65,21 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// Request logger — logs method, URL, status code, and response time for every request
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    logger.info(`${req.method} ${req.originalUrl}`, {
+      method: req.method,
+      url: req.originalUrl,
+      status: res.statusCode,
+      duration: `${ms}ms`,
+    });
+  });
+  next();
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/customer', userAuthRoutes);

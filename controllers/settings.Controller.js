@@ -1,4 +1,5 @@
 import db from "../db.js";
+import logger from '../utils/logger.js';
 
 /**
  * GET /api/settings
@@ -17,7 +18,7 @@ export const getSettings = async (req, res) => {
 
         return res.status(200).json(settings);
     } catch (error) {
-        console.error("❌ Get settings error:", error);
+        logger.error("❌ Get settings error:", { error });
         return res.status(500).json({ error: "Failed to fetch settings" });
     }
 };
@@ -60,7 +61,7 @@ export const updateSettings = async (req, res) => {
 
         return res.status(200).json({ message: "Settings updated successfully" });
     } catch (error) {
-        console.error("❌ Update settings error:", error);
+        logger.error("❌ Update settings error:", { error });
         return res.status(500).json({ error: "Failed to update settings" });
     }
 };

@@ -1,3 +1,5 @@
+import logger from '../utils/logger.js';
+
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
 
 const tmdbFetch = async (path, params = {}) => {
@@ -25,7 +27,7 @@ export const getTMDBPopular = async (req, res) => {
         const data = await tmdbFetch('/movie/popular', { language: 'en-US', page, with_original_language })
         res.json(data)
     } catch (error) {
-        console.error('TMDB popular error:', error.message)
+        logger.error('TMDB popular error:', { message: error.message })
         res.status(502).json({ message: error.message })
     }
 }
@@ -37,7 +39,7 @@ export const getTMDBNowPlaying = async (req, res) => {
         const data = await tmdbFetch('/movie/now_playing', { language: 'en-US', page, with_original_language })
         res.json(data)
     } catch (error) {
-        console.error('TMDB now_playing error:', error.message)
+        logger.error('TMDB now_playing error:', { message: error.message })
         res.status(502).json({ message: error.message })
     }
 }
@@ -49,7 +51,7 @@ export const getTMDBUpcoming = async (req, res) => {
         const data = await tmdbFetch('/movie/upcoming', { language: 'en-US', page, with_original_language })
         res.json(data)
     } catch (error) {
-        console.error('TMDB upcoming error:', error.message)
+        logger.error('TMDB upcoming error:', { message: error.message })
         res.status(502).json({ message: error.message })
     }
 }
@@ -61,7 +63,7 @@ export const getTMDBTopRated = async (req, res) => {
         const data = await tmdbFetch('/movie/top_rated', { language: 'en-US', page, with_original_language })
         res.json(data)
     } catch (error) {
-        console.error('TMDB top_rated error:', error.message)
+        logger.error('TMDB top_rated error:', { message: error.message })
         res.status(502).json({ message: error.message })
     }
 }
@@ -76,7 +78,7 @@ export const searchTMDB = async (req, res) => {
         const data = await tmdbFetch('/search/movie', { language: 'en-US', query, page, with_original_language })
         res.json(data)
     } catch (error) {
-        console.error('TMDB search error:', error.message)
+        logger.error('TMDB search error:', { message: error.message })
         res.status(502).json({ message: error.message })
     }
 }
@@ -98,7 +100,7 @@ export const getTMDBInTheatres = async (req, res) => {
         })
         res.json(data)
     } catch (error) {
-        console.error('TMDB in-theatres error:', error.message)
+        logger.error('TMDB in-theatres error:', { message: error.message })
         res.status(502).json({ message: error.message })
     }
 }
@@ -113,7 +115,7 @@ export const getTMDBMovieDetails = async (req, res) => {
         })
         res.json(data)
     } catch (error) {
-        console.error('TMDB movie details error:', error.message)
+        logger.error('TMDB movie details error:', { message: error.message })
         res.status(502).json({ message: error.message })
     }
 }

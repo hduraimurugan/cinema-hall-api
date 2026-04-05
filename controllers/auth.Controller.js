@@ -2,6 +2,7 @@ import pool from '../db.js'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { generateTokenAndSetCookie } from '../utils/generateTokenAndSetCookie.js'
+import logger from '../utils/logger.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -38,7 +39,7 @@ export const registerCinemaAdmin = async (req, res) => {
       hall: hallResult.rows[0],
     })
   } catch (err) {
-    console.error('❌ Registration error:', err.message)
+    logger.error('❌ Registration error:', { message: err.message })
     res.status(500).json({ error: 'Registration failed. Try again later.' })
   }
 }
@@ -115,7 +116,7 @@ export const loginCinemaAdmin = async (req, res) => {
         : null,
     })
   } catch (err) {
-    console.error('❌ Login error:', err.message)
+    logger.error('❌ Login error:', { message: err.message })
     res.status(500).json({ error: 'Login failed. Try again later.' })
   }
 }
@@ -146,7 +147,7 @@ export const refreshCinemaAdminToken = async (req, res) => {
 
     res.json({ success: true })
   } catch (err) {
-    console.error('❌ Refresh token error:', err.message)
+    logger.error('❌ Refresh token error:', { message: err.message })
     res.status(500).json({ error: 'Token refresh failed' })
   }
 }
@@ -205,7 +206,7 @@ export const getCinemaAdminMe = async (req, res) => {
         : null,
     })
   } catch (err) {
-    console.error('❌ getMe error:', err.message)
+    logger.error('❌ getMe error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch admin info' })
   }
 }
@@ -251,7 +252,7 @@ export const getAllAdmins = async (req, res) => {
       total: parseInt(countResult.rows[0].count),
     })
   } catch (err) {
-    console.error('❌ getAllAdmins error:', err.message)
+    logger.error('❌ getAllAdmins error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch admins' })
   }
 }
@@ -271,7 +272,9 @@ export const logoutCinemaAdmin = async (req, res) => {
     })
     res.status(200).json({ message: 'Logged out successfully' })
   } catch (err) {
-    console.error('Logout error:', err)
+    logger.error('Logout error:', { error: err })
     res.status(500).json({ error: 'Logout failed' })
   }
 }
+
+

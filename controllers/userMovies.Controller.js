@@ -49,7 +49,7 @@ export const getMoviesByLocation = async (req, res) => {
         })
 
     } catch (error) {
-        console.error("Error fetching movies by location:", error.message)
+        logger.error("Error fetching movies by location:", { message: error.message })
         res.status(500).json({
             success: false,
             message: "Server error while fetching movies"
@@ -106,7 +106,7 @@ export const getMoviesByState = async (req, res) => {
         })
 
     } catch (error) {
-        console.error("Error fetching movies by state:", error.message)
+        logger.error("Error fetching movies by state:", { message: error.message })
         res.status(500).json({
             success: false,
             message: "Server error while fetching movies"
@@ -222,7 +222,7 @@ export const getMovieDetailsWithShowtimes = async (req, res) => {
         })
 
     } catch (error) {
-        console.error("Error fetching movie details with showtimes:", error.message)
+        logger.error("Error fetching movie details with showtimes:", { message: error.message })
         res.status(500).json({
             success: false,
             message: "Server error while fetching movie details"
@@ -265,7 +265,7 @@ export const getDistrictsInState = async (req, res) => {
         })
 
     } catch (error) {
-        console.error("Error fetching districts:", error.message)
+        logger.error("Error fetching districts:", { message: error.message })
         res.status(500).json({
             success: false,
             message: "Server error while fetching districts"
@@ -316,7 +316,7 @@ export const getCinemaHallsByLocation = async (req, res) => {
         })
 
     } catch (error) {
-        console.error("Error fetching cinema halls:", error.message)
+        logger.error("Error fetching cinema halls:", { message: error.message })
         res.status(500).json({
             success: false,
             message: "Server error while fetching cinema halls"
@@ -398,7 +398,7 @@ export const getAllMovies = async (req, res) => {
             count: result.rows.length
         })
     } catch (error) {
-        console.error("Error fetching movies:", error.message)
+        logger.error("Error fetching movies:", { message: error.message })
         res.status(500).json({
             success: false,
             message: "Server error while fetching movies"
@@ -505,7 +505,7 @@ export const getCinemaHallsWithShows = async (req, res) => {
         })
 
     } catch (error) {
-        console.error("Error fetching cinema halls with shows:", error.message)
+        logger.error("Error fetching cinema halls with shows:", { message: error.message })
         res.status(500).json({
             success: false,
             message: "Server error while fetching theatres"
@@ -549,7 +549,7 @@ export const getMovieById = async (req, res) => {
         })
 
     } catch (error) {
-        console.error("Error fetching movie by ID:", error.message)
+        logger.error("Error fetching movie by ID:", { message: error.message })
         res.status(500).json({
             success: false,
             message: "Server error while fetching movie details"

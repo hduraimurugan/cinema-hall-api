@@ -2,6 +2,7 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import db from "../db.js";
 import { validateOfferCode } from "./offers.Controller.js";
+import logger from '../utils/logger.js';
 
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
@@ -114,7 +115,7 @@ export const createOrder = async (req, res) => {
             // SDK throws { statusCode, error } for HTTP errors, or a TypeError for network failures
             const statusCode = rzpErr?.statusCode;
             const description = rzpErr?.error?.description || rzpErr?.error?.code || rzpErr?.message;
-            console.error("❌ Razorpay order creation failed:", statusCode ?? "network error", description ?? rzpErr);
+            logger.error("❌ Razorpay order creation failed:", { statusCode: statusCode ?? "network error", description: description ?? rzpErr });
             return res.status(502).json({ error: "Payment gateway error. Please try again." });
         }
 
@@ -134,7 +135,7 @@ export const createOrder = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Create order error:", error);
+        logger.error("❌ Create order error:", { error });
         return res.status(500).json({ error: "Failed to create order" });
     }
 };
@@ -237,7 +238,7 @@ export const verifyPayment = async (req, res) => {
         }
 
     } catch (error) {
-        console.error("❌ Verify payment error:", error);
+        logger.error("❌ Verify payment error:", { error });
         return res.status(500).json({ error: "Payment verification failed" });
     }
 };
@@ -260,14 +261,14 @@ export const handleWebhook = async (req, res) => {
         .digest("hex");
 
     if (expectedSignature !== signature) {
-        console.error("❌ Invalid webhook signature");
+        logger.error("❌ Invalid webhook signature");
         return res.status(400).json({ error: "Invalid signature" });
     }
 
     const event = req.body.event;
     const payload = req.body.payload;
 
-    console.log(`📥 Webhook received: ${event}`);
+    logger.info(`📥 Webhook received: ${event}`);
 
     try {
         switch (event) {
@@ -291,7 +292,7 @@ export const handleWebhook = async (req, res) => {
                      WHERE razorpay_refund_id = $1`,
                     [payload.refund.entity.id]
                 );
-                console.log(`✅ Refund settled: ${payload.refund.entity.id}`);
+                logger.info(`✅ Refund settled: ${payload.refund.entity.id}`);
                 break;
 
             case "refund.failed":
@@ -300,17 +301,17 @@ export const handleWebhook = async (req, res) => {
                      WHERE razorpay_refund_id = $2`,
                     [payload.refund.entity.description || 'Refund failed', payload.refund.entity.id]
                 );
-                console.log(`❌ Refund failed: ${payload.refund.entity.id}`);
+                logger.warn(`❌ Refund failed: ${payload.refund.entity.id}`);
                 break;
 
             default:
-                console.log(`Unhandled event: ${event}`);
+                logger.warn(`Unhandled event: ${event}`);
         }
 
         return res.status(200).json({ received: true });
 
     } catch (error) {
-        console.error("❌ Webhook processing error:", error);
+        logger.error("❌ Webhook processing error:", { error });
         return res.status(500).json({ error: "Webhook processing failed" });
     }
 };
@@ -325,7 +326,7 @@ async function handlePaymentCaptured(payment) {
   `, [orderId]);
 
     if (existing.rows[0]?.status === 'paid') {
-        console.log(`Order ${orderId} already processed`);
+        logger.info(`Order ${orderId} already processed`);
         return;
     }
 
@@ -356,7 +357,7 @@ async function handlePaymentCaptured(payment) {
     `, [orderId, payment.id]);
 
         await client.query('COMMIT');
-        console.log(`✅ Webhook: Order ${orderId} confirmed via webhook`);
+        logger.info(`✅ Webhook: Order ${orderId} confirmed via webhook`);
 
     } catch (error) {
         await client.query('ROLLBACK');
@@ -390,14 +391,14 @@ async function handlePaymentFailed(payment) {
       WHERE show_id = $1 AND seat_id = ANY($2::text[]) AND status = 'HELD'
     `, [order.show_id, seats]);
 
-        console.log(`🔓 Webhook: Released seats for failed order ${orderId}`);
+        logger.info(`🔓 Webhook: Released seats for failed order ${orderId}`);
     }
 }
 
 // Helper: Handle order paid (backup)
 async function handleOrderPaid(order) {
     // Same as handlePaymentCaptured - acts as backup
-    console.log(`📦 Order ${order.id} marked as paid`);
+    logger.info(`📦 Order ${order.id} marked as paid`);
 }
 
 
@@ -476,7 +477,7 @@ export const getPaymentOrders = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Get payment orders error:", error);
+        logger.error("❌ Get payment orders error:", { error });
         return res.status(500).json({ error: "Failed to fetch payment orders" });
     }
 };

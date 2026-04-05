@@ -1,4 +1,5 @@
 import db from "../db.js";
+import logger from '../utils/logger.js';
 
 /**
  * GET /api/dashboard/stats
@@ -166,7 +167,7 @@ export const getDashboardStats = async (req, res) => {
             })),
         });
     } catch (error) {
-        console.error("❌ Dashboard stats error:", error);
+        logger.error("❌ Dashboard stats error:", { error });
         return res.status(500).json({ error: "Failed to fetch dashboard stats" });
     } finally {
         client.release();

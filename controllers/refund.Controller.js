@@ -1,4 +1,5 @@
 import db from "../db.js";
+import logger from '../utils/logger.js';
 
 /**
  * GET /api/refunds
@@ -87,7 +88,7 @@ export const getRefunds = async (req, res) => {
       total: parseInt(countResult.rows[0].count, 10),
     });
   } catch (err) {
-    console.error("❌ getRefunds error:", err.message);
+    logger.error("❌ getRefunds error:", { message: err.message });
     res.status(500).json({ error: err.message });
   }
 };
@@ -117,7 +118,7 @@ export const getRefundByBooking = async (req, res) => {
 
     res.status(200).json({ refund: result.rows[0] });
   } catch (err) {
-    console.error("❌ getRefundByBooking error:", err.message);
+    logger.error("❌ getRefundByBooking error:", { message: err.message });
     res.status(500).json({ error: err.message });
   }
 };
@@ -157,7 +158,7 @@ export const manuallySettleRefund = async (req, res) => {
 
     res.status(200).json({ message: "Refund marked as settled" });
   } catch (err) {
-    console.error("❌ manuallySettleRefund error:", err.message);
+    logger.error("❌ manuallySettleRefund error:", { message: err.message });
     res.status(500).json({ error: err.message });
   }
 };

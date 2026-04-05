@@ -58,7 +58,7 @@ export const addMovie = async (req, res) => {
         const result = await client.query(insertQuery, values)
         res.status(201).json(result.rows[0])
     } catch (error) {
-        console.error('Error adding movie:', error.message)
+        logger.error('Error adding movie:', { message: error.message })
         res.status(500).json({ message: 'Server error while adding movie' })
     } finally {
         client.release()
@@ -118,7 +118,7 @@ export const editMovie = async (req, res) => {
 
         res.json(result.rows[0])
     } catch (error) {
-        console.error('Error editing movie:', error.message)
+        logger.error('Error editing movie:', { message: error.message })
         res.status(500).json({ message: 'Server error while editing movie' })
     } finally {
         client.release()
@@ -140,7 +140,7 @@ export const deleteMovie = async (req, res) => {
 
         res.json({ message: 'Movie deleted successfully', movie: result.rows[0] })
     } catch (error) {
-        console.error('Error deleting movie:', error.message)
+        logger.error('Error deleting movie:', { message: error.message })
         res.status(500).json({ message: 'Server error while deleting movie' })
     } finally {
         client.release()
@@ -232,7 +232,7 @@ export const getAllMovies = async (req, res) => {
             total: result.rows.length,
         })
     } catch (error) {
-        console.error("Error fetching movies:", error.message)
+        logger.error("Error fetching movies:", { message: error.message })
         res.status(500).json({ message: "Server error while fetching movies" })
     } finally {
         client.release()
@@ -267,7 +267,7 @@ export const getMovieById = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Error fetching movie by ID:", error.message);
+        logger.error("Error fetching movie by ID:", { message: error.message });
         res.status(500).json({ message: "Server error while fetching movie details" });
     } finally {
         client.release();
@@ -298,7 +298,7 @@ export const updateMovieStatus = async (req, res) => {
 
         res.json(result.rows[0])
     } catch (error) {
-        console.error('Error updating status:', error.message)
+        logger.error('Error updating status:', { message: error.message })
         res.status(500).json({ message: 'Server error while updating status' })
     } finally {
         client.release()
@@ -314,7 +314,7 @@ export const getMovieTmdbIds = async (req, res) => {
         )
         res.json({ tmdb_ids: result.rows.map(r => r.tmdb_id) })
     } catch (error) {
-        console.error('Error fetching tmdb ids:', error.message)
+        logger.error('Error fetching tmdb ids:', { message: error.message })
         res.status(500).json({ message: 'Server error while fetching tmdb ids' })
     } finally {
         client.release()

@@ -1,6 +1,7 @@
 import db from "../db.js"; // assumes you have a db instance (like pg-promise or pg-pool)
 import dayjs from 'dayjs';
 import Razorpay from "razorpay";
+import logger from '../utils/logger.js';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -19,7 +20,7 @@ export const createShow = async (req, res) => {
     price_override = null,
   } = req.body;
 
-  console.log("Show Date", show_date);
+  logger.debug("Show Date", { show_date });
   // 🧠 Ensure only date part is stored (drop time & timezone)
   const formattedDate = dayjs(show_date).format("YYYY-MM-DD");
 
@@ -91,11 +92,11 @@ export const createMultipleShows = async (req, res) => {
     await client.query("COMMIT");
 
     const skippedCount = skipped.length;
-    console.log(`✅ Bulk create: ${createdShows.length} created, ${skippedCount} skipped`);
+    logger.info(`✅ Bulk create: ${createdShows.length} created, ${skippedCount} skipped`);
     res.status(201).json({ shows: createdShows, skipped });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("❌ Error creating multiple shows:", err.message);
+    logger.error("❌ Error creating multiple shows:", { message: err.message });
     res.status(400).json({ error: err.message });
   } finally {
     client.release();
@@ -262,7 +263,7 @@ export const getShowsByDate = async (req, res) => {
 
     res.status(200).json({ date, grouped: Object.values(grouped) });
   } catch (err) {
-    console.error("❌ getShowsByDate error:", err.message);
+    logger.error("❌ getShowsByDate error:", { message: err.message });
     res.status(500).json({ error: err.message });
   }
 };
@@ -308,7 +309,7 @@ export const bookShow = async (req, res) => {
 
     res.status(200).json({ success: true, data: results });
   } catch (err) {
-    console.error("❌ Booking error:", err);
+    logger.error("❌ Booking error:", { error: err });
     res.status(500).json({ success: false, message: "Booking failed" });
   }
 };
@@ -413,7 +414,7 @@ export const getShowById = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ getShowById error:", err.message);
+    logger.error("❌ getShowById error:", { message: err.message });
     res.status(500).json({ error: "Something went wrong" });
   }
 };
@@ -464,14 +465,14 @@ export const updateShowStatuses = async () => {
 
     const totalEnded = endedResult.rowCount + missedResult.rowCount + expiredResult.rowCount;
     if (inProgressResult.rowCount > 0 || totalEnded > 0) {
-      console.log(`🎬 Shows updated: ${inProgressResult.rowCount} → in_progress, ${totalEnded} → show_ended`);
+      logger.info(`🎬 Shows updated: ${inProgressResult.rowCount} → in_progress, ${totalEnded} → show_ended`);
     }
   } catch (error) {
     const transient = ['ENOTFOUND', 'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED'];
     if (transient.includes(error.code)) {
-      console.warn(`⚠️ Show status update skipped — DB unreachable (${error.code})`);
+      logger.warn(`⚠️ Show status update skipped — DB unreachable (${error.code})`);
     } else {
-      console.error('❌ Show status update error:', error);
+      logger.error('❌ Show status update error:', { error });
     }
   }
 };
@@ -555,7 +556,7 @@ export const cancelShow = async (req, res) => {
           );
           refundResults.push({ payment_id: booking.payment_id, status: 'refund_initiated' });
         } catch (refundErr) {
-          console.error('❌ Razorpay refund error:', refundErr.message);
+          logger.error('❌ Razorpay refund error:', { message: refundErr.message });
           await db.query(
             `UPDATE refunds SET refund_status = 'failed', failure_reason = $1 WHERE booking_id = $2`,
             [refundErr.message, booking.id]
@@ -572,7 +573,7 @@ export const cancelShow = async (req, res) => {
     });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('❌ cancelShow error:', err.message);
+    logger.error('❌ cancelShow error:', { message: err.message });
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
@@ -635,7 +636,7 @@ export const updateShowBookingStatus = async (req, res) => {
 
     return res.status(400).json({ error: 'Invalid action. Use "open", "revert", or "restore"' });
   } catch (err) {
-    console.error('❌ updateShowBookingStatus error:', err.message);
+    logger.error('❌ updateShowBookingStatus error:', { message: err.message });
     res.status(500).json({ error: err.message });
   }
 };
@@ -721,7 +722,7 @@ export const bulkCancelShows = async (req, res) => {
               [refundResponse.id, booking.id]
             );
           } catch (refundErr) {
-            console.error('❌ Razorpay refund error:', refundErr.message);
+            logger.error('❌ Razorpay refund error:', { message: refundErr.message });
             await db.query(
               `UPDATE refunds SET refund_status = 'failed', failure_reason = $1 WHERE booking_id = $2`,
               [refundErr.message, booking.id]
@@ -869,7 +870,7 @@ export const getShowBookingCount = async (req, res) => {
       total_amount: parseFloat(result.rows[0].total_amount),
     });
   } catch (err) {
-    console.error('❌ getShowBookingCount error:', err.message);
+    logger.error('❌ getShowBookingCount error:', { message: err.message });
     res.status(500).json({ error: err.message });
   }
 };

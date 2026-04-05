@@ -1,5 +1,6 @@
 import pool from '../db.js';
 import jwt from 'jsonwebtoken';
+import logger from '../utils/logger.js';
 
 // GET /api/ads — Admin: list all ads with total click count
 export const getAllAds = async (req, res) => {
@@ -13,7 +14,7 @@ export const getAllAds = async (req, res) => {
     `);
     res.json({ ads: rows });
   } catch (err) {
-    console.error('getAllAds error:', err.message);
+    logger.error('getAllAds error:', { message: err.message });
     res.status(500).json({ error: 'Failed to fetch ads' });
   }
 };
@@ -34,7 +35,7 @@ export const createAd = async (req, res) => {
     );
     res.status(201).json({ ad: rows[0] });
   } catch (err) {
-    console.error('createAd error:', err.message);
+    logger.error('createAd error:', { message: err.message });
     res.status(500).json({ error: 'Failed to create ad' });
   }
 };
@@ -55,7 +56,7 @@ export const updateAd = async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'Ad not found' });
     res.json({ ad: rows[0] });
   } catch (err) {
-    console.error('updateAd error:', err.message);
+    logger.error('updateAd error:', { message: err.message });
     res.status(500).json({ error: 'Failed to update ad' });
   }
 };
@@ -68,7 +69,7 @@ export const deleteAd = async (req, res) => {
     if (rowCount === 0) return res.status(404).json({ error: 'Ad not found' });
     res.json({ message: 'Ad deleted' });
   } catch (err) {
-    console.error('deleteAd error:', err.message);
+    logger.error('deleteAd error:', { message: err.message });
     res.status(500).json({ error: 'Failed to delete ad' });
   }
 };
@@ -89,7 +90,7 @@ export const getAdClicks = async (req, res) => {
     `, [id]);
     res.json({ clicks: rows });
   } catch (err) {
-    console.error('getAdClicks error:', err.message);
+    logger.error('getAdClicks error:', { message: err.message });
     res.status(500).json({ error: 'Failed to fetch clicks' });
   }
 };
@@ -111,7 +112,7 @@ export const getActiveAds = async (req, res) => {
     `, [placement]);
     res.json({ ads: rows });
   } catch (err) {
-    console.error('getActiveAds error:', err.message);
+    logger.error('getActiveAds error:', { message: err.message });
     res.status(500).json({ error: 'Failed to fetch active ads' });
   }
 };
@@ -139,7 +140,7 @@ export const recordClick = async (req, res) => {
     );
     res.json({ recorded: true });
   } catch (err) {
-    console.error('recordClick error:', err.message);
+    logger.error('recordClick error:', { message: err.message });
     res.status(500).json({ error: 'Failed to record click' });
   }
 };

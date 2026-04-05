@@ -1,4 +1,5 @@
 import db from "../db.js";
+import logger from '../utils/logger.js';
 
 const HOLD_DURATION_MINUTES = 5;
 
@@ -94,7 +95,7 @@ export const holdSeats = async (req, res) => {
 
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error("❌ Hold seats error:", error);
+        logger.error("❌ Hold seats error:", { error });
         return res.status(500).json({ error: "Failed to hold seats" });
     } finally {
         client.release();
@@ -180,7 +181,7 @@ export const confirmBooking = async (req, res) => {
 
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error("❌ Confirm booking error:", error.message);
+        logger.error("❌ Confirm booking error:", { message: error.message });
         return res.status(400).json({
             success: false,
             error: error.message
@@ -217,7 +218,7 @@ export const releaseSeats = async (req, res) => {
             released: result.rows.map(r => r.seat_id)
         });
     } catch (error) {
-        console.error("❌ Release seats error:", error);
+        logger.error("❌ Release seats error:", { error });
         return res.status(500).json({ error: "Failed to release seats" });
     }
 };
@@ -258,7 +259,7 @@ export const getBookingByPaymentId = async (req, res) => {
 
         return res.status(200).json({ booking: result.rows[0] });
     } catch (error) {
-        console.error("❌ Get booking by payment ID error:", error);
+        logger.error("❌ Get booking by payment ID error:", { error });
         return res.status(500).json({ error: "Failed to fetch booking" });
     }
 };
@@ -303,7 +304,7 @@ export const getMyBookings = async (req, res) => {
 
         return res.status(200).json({ bookings: result.rows });
     } catch (error) {
-        console.error("❌ Get my bookings error:", error);
+        logger.error("❌ Get my bookings error:", { error });
         return res.status(500).json({ error: "Failed to fetch bookings" });
     }
 };
@@ -400,7 +401,7 @@ export const getCinemaHallBookings = async (req, res) => {
             },
         });
     } catch (error) {
-        console.error("❌ Get cinema hall bookings error:", error);
+        logger.error("❌ Get cinema hall bookings error:", { error });
         return res.status(500).json({ error: "Failed to fetch bookings" });
     }
 };
@@ -463,7 +464,7 @@ export const verifyBookingById = async (req, res) => {
 
         return res.status(200).json({ booking: result.rows[0] });
     } catch (error) {
-        console.error("❌ Verify booking error:", error);
+        logger.error("❌ Verify booking error:", { error });
         return res.status(500).json({ error: "Failed to verify booking" });
     }
 };
@@ -522,7 +523,7 @@ export const getBookingDetails = async (req, res) => {
 
         return res.status(200).json({ booking: result.rows[0] });
     } catch (error) {
-        console.error("❌ Get booking details error:", error);
+        logger.error("❌ Get booking details error:", { error });
         return res.status(500).json({ error: "Failed to fetch booking" });
     }
 };
@@ -543,17 +544,19 @@ export const cleanupExpiredHolds = async () => {
     `);
 
         if (result.rowCount > 0) {
-            console.log(`🧹 Cleaned up ${result.rowCount} expired holds`);
+            logger.info(`🧹 Cleaned up ${result.rowCount} expired holds`);
         }
 
         return result.rowCount;
     } catch (error) {
         const transient = ['ENOTFOUND', 'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED'];
         if (transient.includes(error.code)) {
-            console.warn(`⚠️ Cleanup skipped — DB unreachable (${error.code})`);
+            logger.warn(`⚠️ Cleanup skipped — DB unreachable (${error.code})`);
         } else {
-            console.error('❌ Cleanup error:', error);
+            logger.error('❌ Cleanup error:', { error });
         }
         return 0;
     }
 };
+
+

@@ -2,6 +2,7 @@ import pool from '../db.js'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { generateCustomerTokenAndSetCookie, generateTokenAndSetCookie } from '../utils/generateTokenAndSetCookie.js'
+import logger from '../utils/logger.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -41,7 +42,7 @@ export const registerCustomer = async (req, res) => {
       customer: result.rows[0],
     })
   } catch (err) {
-    console.error('❌ Customer signup error:', err.message)
+    logger.error('❌ Customer signup error:', { message: err.message })
     res.status(500).json({ error: 'Signup failed. Try again later.' })
   }
 }
@@ -90,7 +91,7 @@ export const loginCustomer = async (req, res) => {
       },
     })
   } catch (err) {
-    console.error('❌ Customer login error:', err.message)
+    logger.error('❌ Customer login error:', { message: err.message })
     res.status(500).json({ error: 'Login failed. Try again later.' })
   }
 }
@@ -110,7 +111,7 @@ export const logoutCustomer = async (req, res) => {
     })
     res.status(200).json({ message: 'Logged out successfully' })
   } catch (err) {
-    console.error('❌ Logout error:', err.message)
+    logger.error('❌ Logout error:', { message: err.message })
     res.status(500).json({ error: 'Logout failed' })
   }
 }
@@ -118,7 +119,7 @@ export const logoutCustomer = async (req, res) => {
 // ✅ Update Customer Profile
 export const updateCustomerProfile = async (req, res) => {
   const customerId = req.customer?.id // assuming middleware attaches decoded JWT payload to req.user
-  console.log("Authenticated Customer ID:", customerId);
+  logger.debug("Authenticated Customer ID:", { customerId });
   
   const { name, phone, district, state, password } = req.body
 
@@ -170,7 +171,7 @@ export const updateCustomerProfile = async (req, res) => {
       customer: result.rows[0],
     })
   } catch (err) {
-    console.error('❌ Update profile error:', err.message)
+    logger.error('❌ Update profile error:', { message: err.message })
     res.status(500).json({ error: 'Profile update failed. Try again later.' })
   }
 }
@@ -203,7 +204,7 @@ export const refreshCustomerToken = async (req, res) => {
 
     res.json({ success: true })
   } catch (err) {
-    console.error('❌ Refresh token error:', err.message)
+    logger.error('❌ Refresh token error:', { message: err.message })
     res.status(500).json({ error: 'Token refresh failed' })
   }
 }
@@ -228,7 +229,7 @@ export const getCustomerMe = async (req, res) => {
       customer: result.rows[0],
     })
   } catch (err) {
-    console.error('❌ getCustomerMe error:', err.message)
+    logger.error('❌ getCustomerMe error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch customer info' })
   }
 }

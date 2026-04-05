@@ -1,4 +1,5 @@
 import db from "../db.js";
+import logger from '../utils/logger.js';
 
 // ─────────────────────────────────────────────────────────────
 // Shared validation helper (used by validateOffer + createOrder)
@@ -112,7 +113,7 @@ export const getAllCinemaHalls = async (req, res) => {
         const result = await db.query(`SELECT id, name FROM cinema_hall ORDER BY name ASC`);
         return res.status(200).json({ halls: result.rows });
     } catch (error) {
-        console.error("❌ getAllCinemaHalls error:", error);
+        logger.error("❌ getAllCinemaHalls error:", { error });
         return res.status(500).json({ error: "Failed to fetch cinema halls." });
     }
 };
@@ -161,7 +162,7 @@ export const getAllOffers = async (req, res) => {
             page: parseInt(page),
         });
     } catch (error) {
-        console.error("❌ getAllOffers error:", error);
+        logger.error("❌ getAllOffers error:", { error });
         return res.status(500).json({ error: "Failed to fetch offers." });
     }
 };
@@ -216,7 +217,7 @@ export const createOffer = async (req, res) => {
         if (error.code === '23505') {
             return res.status(409).json({ error: "An offer with this code already exists." });
         }
-        console.error("❌ createOffer error:", error);
+        logger.error("❌ createOffer error:", { error });
         return res.status(500).json({ error: "Failed to create offer." });
     }
 };
@@ -239,7 +240,7 @@ export const getOfferById = async (req, res) => {
         }
         return res.status(200).json({ offer: result.rows[0] });
     } catch (error) {
-        console.error("❌ getOfferById error:", error);
+        logger.error("❌ getOfferById error:", { error });
         return res.status(500).json({ error: "Failed to fetch offer." });
     }
 };
@@ -298,7 +299,7 @@ export const updateOffer = async (req, res) => {
         if (error.code === '23505') {
             return res.status(409).json({ error: "An offer with this code already exists." });
         }
-        console.error("❌ updateOffer error:", error);
+        logger.error("❌ updateOffer error:", { error });
         return res.status(500).json({ error: "Failed to update offer." });
     }
 };
@@ -316,7 +317,7 @@ export const deleteOffer = async (req, res) => {
         }
         return res.status(200).json({ message: "Offer deleted." });
     } catch (error) {
-        console.error("❌ deleteOffer error:", error);
+        logger.error("❌ deleteOffer error:", { error });
         return res.status(500).json({ error: "Failed to delete offer." });
     }
 };
@@ -371,7 +372,7 @@ export const getActiveOffers = async (req, res) => {
 
         return res.status(200).json({ offers: eligible });
     } catch (error) {
-        console.error("❌ getActiveOffers error:", error);
+        logger.error("❌ getActiveOffers error:", { error });
         return res.status(500).json({ error: "Failed to fetch offers." });
     }
 };

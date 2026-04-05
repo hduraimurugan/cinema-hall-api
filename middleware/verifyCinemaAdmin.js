@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken'
 import pool from '../db.js'
 import db from "../db.js";
+import logger from '../utils/logger.js';
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -16,7 +17,7 @@ export const verifyCinemaAdminAccessToken = async (req, res, next) => {
     req.admin = decoded
     next()
   } catch (err) {
-    console.error('❌ Access Token Error:', err.message)
+    logger.error('❌ Access Token Error:', { message: err.message })
     return res.status(403).json({ message: 'Invalid or expired access token' })
   }
 }
@@ -33,7 +34,7 @@ export const verifyCinemaAdminRefreshToken = (req, res, next) => {
     req.admin = decoded
     next()
   } catch (err) {
-    console.error('❌ Refresh Token Error:', err.message)
+    logger.error('❌ Refresh Token Error:', { message: err.message })
     return res.status(403).json({ message: 'Invalid or expired refresh token' })
   }
 }
@@ -56,7 +57,7 @@ export const verifySuperAdmin = async (req, res, next) => {
     req.admin = decoded // attach the user payload
     next()
   } catch (err) {
-    console.error('❌ Super Admin Token Error:', err.message)
+    logger.error('❌ Super Admin Token Error:', { message: err.message })
     return res.status(403).json({ message: 'Invalid or expired access token' })
   }
 }
@@ -94,7 +95,7 @@ export const verifyCinemaHall = async (req, res, next) => {
 
     next()
   } catch (err) {
-    console.error('❌ Access Token or DB Error:', err.message)
+    logger.error('❌ Access Token or DB Error:', { message: err.message })
     return res.status(403).json({ message: 'Invalid or expired access token' })
   }
 }
@@ -139,7 +140,7 @@ export const verifyScreenOwnership = async (req, res, next) => {
     // ✅ All checks passed
     next();
   } catch (err) {
-    console.error("verifyScreenOwnership error:", err.message);
+    logger.error("verifyScreenOwnership error:", { message: err.message });
     res.status(500).json({ message: "Internal error verifying screen ownership" });
   }
 };
@@ -159,7 +160,7 @@ export const verifyCustomer = async (req, res, next) => {
     req.customer = decoded // attach decoded payload → { id, email, name }
     next()
   } catch (err) {
-    console.error('❌ Customer Token Error:', err.message)
+    logger.error('❌ Customer Token Error:', { message: err.message })
     return res.status(403).json({ message: 'Invalid or expired customer access token' })
   }
 }
@@ -176,7 +177,7 @@ export const verifyCustomerRefreshToken = (req, res, next) => {
     req.customer = decoded // attach decoded payload → { id, email, name }
     next()
   } catch (err) {
-    console.error('❌ Customer Refresh Token Error:', err.message)
+    logger.error('❌ Customer Refresh Token Error:', { message: err.message })
     return res.status(403).json({ message: 'Invalid or expired customer refresh token' })
   }
 }

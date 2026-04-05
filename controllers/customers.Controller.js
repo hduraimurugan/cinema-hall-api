@@ -1,4 +1,5 @@
 import pool from '../db.js'
+import logger from '../utils/logger.js'
 
 // GET /api/customers — Super Admin only
 export const getAllCustomers = async (req, res) => {
@@ -48,7 +49,7 @@ export const getAllCustomers = async (req, res) => {
       },
     })
   } catch (err) {
-    console.error('❌ getAllCustomers error:', err.message)
+    logger.error('❌ getAllCustomers error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch customers' })
   }
 }
