@@ -1,5 +1,6 @@
 import pool from '../db.js'
 import crypto from 'crypto'
+import logger from '../utils/logger.js'
 
 // Utility: Generate random 6-digit OTP
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
