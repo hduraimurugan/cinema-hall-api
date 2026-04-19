@@ -5,7 +5,8 @@ import {
   logoutCinemaAdmin,
   refreshCinemaAdminToken,
   getCinemaAdminMe,
-  getAllAdmins
+  getAllAdmins,
+  updateCinemaHall
 } from '../controllers/auth.Controller.js'
 
 import {
@@ -22,6 +23,7 @@ router.post('/logout', logoutCinemaAdmin)
 
 router.get('/me', verifyCinemaAdminAccessToken, getCinemaAdminMe)
 router.post('/refresh', verifyCinemaAdminRefreshToken, refreshCinemaAdminToken)
+router.patch('/hall', verifyCinemaAdminAccessToken, updateCinemaHall)
 router.get('/admins', verifySuperAdmin, getAllAdmins)
 
 export default router

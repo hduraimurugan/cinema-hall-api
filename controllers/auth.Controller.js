@@ -8,7 +8,7 @@ const isProduction = process.env.NODE_ENV === 'production'
 
 // ✅ Register Admin
 export const registerCinemaAdmin = async (req, res) => {
-  const { name, email, password, phone, hall_name, hall_location, hall_district, hall_state } = req.body
+  const { name, email, password, phone, hall_name, hall_location, hall_district, hall_state, latitude, longitude } = req.body
 
   if (!name || !email || !password || !phone || !hall_name || !hall_location) {
     return res.status(400).json({ error: 'All fields are required.' })
@@ -27,10 +27,10 @@ export const registerCinemaAdmin = async (req, res) => {
     const adminId = userResult.rows[0].id
 
     const hallResult = await pool.query(
-      `INSERT INTO cinema_hall (admin_id, name, location, district, state)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, location, district, state, created_at`,
-      [adminId, hall_name, hall_location, hall_district, hall_state]
+      `INSERT INTO cinema_hall (admin_id, name, location, district, state, latitude, longitude)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, location, district, state, latitude, longitude, created_at`,
+      [adminId, hall_name, hall_location, hall_district, hall_state, latitude ?? null, longitude ?? null]
     )
 
     res.status(201).json({
@@ -64,6 +64,8 @@ export const loginCinemaAdmin = async (req, res) => {
         h.location AS hall_location,
         h.district AS hall_district,
         h.state AS hall_state,
+        h.latitude AS hall_latitude,
+        h.longitude AS hall_longitude,
         h.created_at AS hall_created_at
       FROM cinema_admin_user a
       LEFT JOIN cinema_hall h ON h.admin_id = a.id
@@ -111,6 +113,8 @@ export const loginCinemaAdmin = async (req, res) => {
           location: admin.hall_location,
           district: admin.hall_district,
           state: admin.hall_state,
+          latitude: admin.hall_latitude ? parseFloat(admin.hall_latitude) : null,
+          longitude: admin.hall_longitude ? parseFloat(admin.hall_longitude) : null,
           created_at: admin.hall_created_at,
         }
         : null,
@@ -171,6 +175,8 @@ export const getCinemaAdminMe = async (req, res) => {
         h.location AS hall_location,
         h.district AS hall_district,
         h.state AS hall_state,
+        h.latitude AS hall_latitude,
+        h.longitude AS hall_longitude,
         h.created_at AS hall_created_at
       FROM cinema_admin_user a
       LEFT JOIN cinema_hall h ON h.admin_id = a.id
@@ -201,6 +207,8 @@ export const getCinemaAdminMe = async (req, res) => {
           location: row.hall_location,
           district: row.hall_district,
           state: row.hall_state,
+          latitude: row.hall_latitude ? parseFloat(row.hall_latitude) : null,
+          longitude: row.hall_longitude ? parseFloat(row.hall_longitude) : null,
           created_at: row.hall_created_at,
         }
         : null,
@@ -254,6 +262,43 @@ export const getAllAdmins = async (req, res) => {
   } catch (err) {
     logger.error('❌ getAllAdmins error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch admins' })
+  }
+}
+
+// ✅ Update Cinema Hall Details
+export const updateCinemaHall = async (req, res) => {
+  const { hall_name, hall_location, hall_district, hall_state, latitude, longitude } = req.body
+  const adminId = req.admin.id
+
+  if (!hall_name || !hall_location) {
+    return res.status(400).json({ error: 'Hall name and location are required.' })
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE cinema_hall
+       SET name = $1, location = $2, district = $3, state = $4, latitude = $5, longitude = $6
+       WHERE admin_id = $7
+       RETURNING id, name, location, district, state, latitude, longitude, created_at`,
+      [hall_name, hall_location, hall_district || '', hall_state || '', latitude ?? null, longitude ?? null, adminId]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Cinema hall not found.' })
+    }
+
+    const hall = result.rows[0]
+    res.json({
+      message: 'Cinema hall updated successfully.',
+      hall: {
+        ...hall,
+        latitude: hall.latitude ? parseFloat(hall.latitude) : null,
+        longitude: hall.longitude ? parseFloat(hall.longitude) : null,
+      },
+    })
+  } catch (err) {
+    logger.error('❌ updateCinemaHall error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to update cinema hall.' })
   }
 }
 

@@ -425,7 +425,7 @@ export const getCinemaHallsWithShows = async (req, res) => {
 
         const query = `
             SELECT
-                ch.id AS hall_id, ch.name AS hall_name, ch.location, ch.district, ch.state,
+                ch.id AS hall_id, ch.name AS hall_name, ch.location, ch.district, ch.state, ch.latitude, ch.longitude,
                 m.id AS movie_id, m.title, m.poster_url, m.duration_mins, m.genre, m.language,
                 sc.id AS screen_id, sc.name AS screen_name,
                 sc.premium_price, sc.gold_price, sc.silver_price,
@@ -456,6 +456,8 @@ export const getCinemaHallsWithShows = async (req, res) => {
                     location: row.location,
                     district: row.district,
                     state: row.state,
+                    latitude: row.latitude ? parseFloat(row.latitude) : null,
+                    longitude: row.longitude ? parseFloat(row.longitude) : null,
                     movies: {}
                 }
             }
