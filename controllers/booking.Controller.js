@@ -283,6 +283,9 @@ export const getMyBookings = async (req, res) => {
         sh.start_time,
         sc.name AS screen_name,
         ch.name AS cinema_hall_name,
+        ch.location AS cinema_hall_location,
+        ch.latitude AS cinema_hall_latitude,
+        ch.longitude AS cinema_hall_longitude,
         ARRAY(
           SELECT (seat_data->>'row') || (seat_data->>'column')
           FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
@@ -497,6 +500,9 @@ export const getBookingDetails = async (req, res) => {
         sh.start_time,
         sc.name AS screen_name,
         ch.name AS cinema_hall_name,
+        ch.location AS cinema_hall_location,
+        ch.latitude AS cinema_hall_latitude,
+        ch.longitude AS cinema_hall_longitude,
         ARRAY(
           SELECT (seat_data->>'row') || (seat_data->>'column')
           FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
