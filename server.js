@@ -86,7 +86,10 @@ app.use('/api/customer', userAuthRoutes);
 app.use('/api/otp', otpRoutes);
 app.use('/api/screens', screensRoutes);
 app.use('/api/movies', moviesRoutes);
-app.use('/api/shows', showsRoutes);
+app.use('/api/shows', (req, res, next) => {
+  updateShowStatuses();
+  next();
+}, showsRoutes);
 app.use('/api/booking', bookingRoutes);
 app.use('/api/payment', paymentRoutes);
 
