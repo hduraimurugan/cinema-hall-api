@@ -30,13 +30,13 @@ export const createOrder = async (req, res) => {
         // Protects against: slow network retry, tab refresh,
         // double-click on "Proceed to Pay" before Razorpay modal opens.
         const existingOrder = await db.query(`
-            SELECT po.*, rzp_meta.order_id AS rzp_order_id
-            FROM payment_orders po
-            WHERE po.customer_id = $1
-              AND po.show_id     = $2
-              AND po.status      = 'created'
-              AND po.created_at  > NOW() - INTERVAL '10 minutes'
-            ORDER BY po.created_at DESC
+            SELECT *
+            FROM payment_orders
+            WHERE customer_id = $1
+              AND show_id     = $2
+              AND status      = 'created'
+              AND created_at  > NOW() - INTERVAL '10 minutes'
+            ORDER BY created_at DESC
             LIMIT 1
         `, [customer_id, show_id]);
 
@@ -165,7 +165,7 @@ export const createOrder = async (req, res) => {
         });
 
     } catch (error) {
-        logger.error("❌ Create order error:", { error });
+        logger.error("❌ Create order error:", { error: error.message || error });
         return res.status(500).json({ error: "Failed to create order" });
     }
 };
