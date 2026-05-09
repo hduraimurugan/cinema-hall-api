@@ -61,8 +61,19 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Skip express.json() for the payment webhook path.
+// The webhook route applies express.raw() itself (in payment.routes.js) so that
+// req.body is a Buffer with the exact bytes Razorpay signed. If express.json()
+// ran first, JSON.stringify(req.body) would not reproduce the original byte
+// sequence reliably, breaking HMAC signature verification.
+app.use((req, res, next) => {
+  if (req.path === '/api/payment/webhook') return next();
+  express.json()(req, res, next);
+});
+app.use((req, res, next) => {
+  if (req.path === '/api/payment/webhook') return next();
+  express.urlencoded({ extended: true })(req, res, next);
+});
 app.use(cookieParser());
 
 // Request logger — logs method, URL, status code, and response time for every request
