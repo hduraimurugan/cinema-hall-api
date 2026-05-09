@@ -424,6 +424,7 @@ export const getShowById = async (req, res) => {
 // end_time < start_time. We compute the actual end timestamp by adding 1 day in that case.
 export const updateShowStatuses = async () => {
   try {
+    logger.info("🔄 Running scheduled show status update...", { at: new Date().toISOString() });
     const nowIst = `(NOW() AT TIME ZONE 'Asia/Kolkata')`;
 
     // Actual end timestamp: if end_time < start_time the show crosses midnight → end is next day
