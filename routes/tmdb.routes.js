@@ -8,16 +8,16 @@ import {
     searchTMDB,
     getTMDBMovieDetails,
 } from '../controllers/tmdb.Controller.js'
-import { verifySuperAdmin } from '../middleware/verifyCinemaAdmin.js'
+import { verifyCinemaAdminAccessToken } from '../middleware/verifyCinemaAdmin.js'
 
 const router = express.Router()
 
-router.get('/popular', verifySuperAdmin, getTMDBPopular)
-router.get('/now-playing', verifySuperAdmin, getTMDBNowPlaying)
-router.get('/in-theatres', verifySuperAdmin, getTMDBInTheatres)
-router.get('/upcoming', verifySuperAdmin, getTMDBUpcoming)
-router.get('/top-rated', verifySuperAdmin, getTMDBTopRated)
-router.get('/search', verifySuperAdmin, searchTMDB)
-router.get('/movie/:tmdbId', verifySuperAdmin, getTMDBMovieDetails)
+router.get('/popular', verifyCinemaAdminAccessToken, getTMDBPopular)
+router.get('/now-playing', verifyCinemaAdminAccessToken, getTMDBNowPlaying)
+router.get('/in-theatres', verifyCinemaAdminAccessToken, getTMDBInTheatres)
+router.get('/upcoming', verifyCinemaAdminAccessToken, getTMDBUpcoming)
+router.get('/top-rated', verifyCinemaAdminAccessToken, getTMDBTopRated)
+router.get('/search', verifyCinemaAdminAccessToken, searchTMDB)
+router.get('/movie/:tmdbId', verifyCinemaAdminAccessToken, getTMDBMovieDetails)
 
 export default router
