@@ -208,12 +208,9 @@ export const getShowsByDate = async (req, res) => {
   const { date } = req.params;
 
   try {
-    // 🧠 Extract allowed cinema_hall_ids from verified admin
-    const allowedHallIds = Array.isArray(req.my_cinema_hall)
-      ? req.my_cinema_hall.map(hall => hall.id)
-      : [req.my_cinema_hall.id];
+    const hallId = req.currentHallId;
 
-    // 🔍 Query only shows that belong to screens in allowed halls
+    // 🔍 Query only shows that belong to the active hall
     const result = await db.query(
       `SELECT 
          s.*, 
@@ -222,9 +219,9 @@ export const getShowsByDate = async (req, res) => {
        FROM shows s
        JOIN movies m ON s.movie_id = m.id
        JOIN screens sc ON s.screen_id = sc.id
-       WHERE s.show_date = $1 AND sc.cinema_hall_id = ANY($2::uuid[])
+       WHERE s.show_date = $1 AND sc.cinema_hall_id = $2
        ORDER BY m.title, s.start_time`,
-      [date, allowedHallIds]
+      [date, hallId]
     );
 
     const shows = result.rows;
@@ -481,20 +478,16 @@ export const updateShowStatuses = async () => {
 // Admin: Cancel a show — marks bookings cancelled and initiates Razorpay refunds
 export const cancelShow = async (req, res) => {
   const { id } = req.params;
-  const allowedHallIds = Array.isArray(req.my_cinema_hall)
-    ? req.my_cinema_hall.map(hall => hall.id)
-    : [req.my_cinema_hall.id];
-
   const client = await db.connect();
   try {
     await client.query('BEGIN');
 
-    // Verify show belongs to admin's cinema hall
+    // Verify show belongs to the active cinema hall
     const showResult = await client.query(
       `SELECT sh.id, sh.status FROM shows sh
        JOIN screens sc ON sc.id = sh.screen_id
-       WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
-      [id, allowedHallIds]
+       WHERE sh.id = $1 AND sc.cinema_hall_id = $2`,
+      [id, req.currentHallId]
     );
 
     if (showResult.rowCount === 0) {
@@ -586,16 +579,12 @@ export const updateShowBookingStatus = async (req, res) => {
   const { id } = req.params;
   const { action } = req.body; // 'open' | 'revert'
 
-  const allowedHallIds = Array.isArray(req.my_cinema_hall)
-    ? req.my_cinema_hall.map(hall => hall.id)
-    : [req.my_cinema_hall.id];
-
   try {
     const showResult = await db.query(
       `SELECT sh.id, sh.status FROM shows sh
        JOIN screens sc ON sc.id = sh.screen_id
-       WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
-      [id, allowedHallIds]
+       WHERE sh.id = $1 AND sc.cinema_hall_id = $2`,
+      [id, req.currentHallId]
     );
 
     if (showResult.rowCount === 0) {
@@ -648,10 +637,6 @@ export const bulkCancelShows = async (req, res) => {
   if (!Array.isArray(ids) || ids.length === 0)
     return res.status(400).json({ error: 'No show IDs provided' });
 
-  const allowedHallIds = Array.isArray(req.my_cinema_hall)
-    ? req.my_cinema_hall.map(hall => hall.id)
-    : [req.my_cinema_hall.id];
-
   const results = [];
 
   for (const id of ids) {
@@ -662,8 +647,8 @@ export const bulkCancelShows = async (req, res) => {
       const showResult = await client.query(
         `SELECT sh.id, sh.status FROM shows sh
          JOIN screens sc ON sc.id = sh.screen_id
-         WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
-        [id, allowedHallIds]
+         WHERE sh.id = $1 AND sc.cinema_hall_id = $2`,
+        [id, req.currentHallId]
       );
 
       if (showResult.rowCount === 0) {
@@ -754,10 +739,6 @@ export const bulkRestoreShows = async (req, res) => {
   if (!Array.isArray(ids) || ids.length === 0)
     return res.status(400).json({ error: 'No show IDs provided' });
 
-  const allowedHallIds = Array.isArray(req.my_cinema_hall)
-    ? req.my_cinema_hall.map(hall => hall.id)
-    : [req.my_cinema_hall.id];
-
   const results = [];
 
   for (const id of ids) {
@@ -765,8 +746,8 @@ export const bulkRestoreShows = async (req, res) => {
       const showResult = await db.query(
         `SELECT sh.id, sh.status FROM shows sh
          JOIN screens sc ON sc.id = sh.screen_id
-         WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
-        [id, allowedHallIds]
+         WHERE sh.id = $1 AND sc.cinema_hall_id = $2`,
+        [id, req.currentHallId]
       );
 
       if (showResult.rowCount === 0) {
@@ -800,10 +781,6 @@ export const bulkOpenBooking = async (req, res) => {
   if (!Array.isArray(ids) || ids.length === 0)
     return res.status(400).json({ error: 'No show IDs provided' });
 
-  const allowedHallIds = Array.isArray(req.my_cinema_hall)
-    ? req.my_cinema_hall.map(hall => hall.id)
-    : [req.my_cinema_hall.id];
-
   const results = [];
 
   for (const id of ids) {
@@ -811,8 +788,8 @@ export const bulkOpenBooking = async (req, res) => {
       const showResult = await db.query(
         `SELECT sh.id, sh.status FROM shows sh
          JOIN screens sc ON sc.id = sh.screen_id
-         WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
-        [id, allowedHallIds]
+         WHERE sh.id = $1 AND sc.cinema_hall_id = $2`,
+        [id, req.currentHallId]
       );
 
       if (showResult.rowCount === 0) {
@@ -843,16 +820,12 @@ export const bulkOpenBooking = async (req, res) => {
 // Admin: Get confirmed booking count + total refund amount for a show (used by cancel dialog)
 export const getShowBookingCount = async (req, res) => {
   const { id } = req.params;
-  const allowedHallIds = Array.isArray(req.my_cinema_hall)
-    ? req.my_cinema_hall.map(hall => hall.id)
-    : [req.my_cinema_hall.id];
-
   try {
     const showResult = await db.query(
       `SELECT sh.id FROM shows sh
        JOIN screens sc ON sc.id = sh.screen_id
-       WHERE sh.id = $1 AND sc.cinema_hall_id = ANY($2::uuid[])`,
-      [id, allowedHallIds]
+       WHERE sh.id = $1 AND sc.cinema_hall_id = $2`,
+      [id, req.currentHallId]
     );
 
     if (showResult.rowCount === 0) {

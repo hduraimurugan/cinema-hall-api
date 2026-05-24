@@ -7,11 +7,7 @@ import logger from '../utils/logger.js';
  * Auth: verifyCinemaAdminAccessToken + verifyCinemaHall
  */
 export const getDashboardStats = async (req, res) => {
-    const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
-
-    if (!cinema_hall_id) {
-        return res.status(400).json({ error: "Cinema hall not found" });
-    }
+    const cinema_hall_id = req.currentHallId;
 
     const client = await db.connect();
 

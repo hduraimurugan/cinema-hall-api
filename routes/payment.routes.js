@@ -5,7 +5,7 @@ import {
     handleWebhook,
     getPaymentOrders,
 } from "../controllers/payment.Controller.js";
-import { verifyCustomer, verifyCinemaAdminAccessToken, verifyCinemaHall } from "../middleware/verifyCinemaAdmin.js";
+import { verifyCustomer, verifyCinemaAdminAccessToken, requireActiveHall } from "../middleware/verifyCinemaAdmin.js";
 
 const router = express.Router();
 
@@ -34,6 +34,6 @@ router.post(
 );
 
 // Admin routes
-router.get("/admin/orders", verifyCinemaAdminAccessToken, verifyCinemaHall, getPaymentOrders);
+router.get("/admin/orders", verifyCinemaAdminAccessToken, requireActiveHall, getPaymentOrders);
 
 export default router;

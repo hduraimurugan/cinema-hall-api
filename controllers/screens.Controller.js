@@ -1,5 +1,6 @@
 import pool from '../db.js'
 import jwt from 'jsonwebtoken'
+import logger from '../utils/logger.js'
 
 // Create a new screen
 export const createScreen = async (req, res) => {
@@ -21,15 +22,8 @@ export const createScreen = async (req, res) => {
     const client = await pool.connect()
 
     try {
-        // Step 1: Get cinema_hall for this admin
-        const hallQuery = 'SELECT id FROM cinema_hall WHERE admin_id = $1'
-        const hallResult = await client.query(hallQuery, [req.admin.id])
-
-        if (hallResult.rows.length === 0) {
-            return res.status(404).json({ message: 'No cinema hall found for this admin' })
-        }
-
-        const cinemaHallId = hallResult.rows[0].id
+        // Use the active hall from requireActiveHall middleware
+        const cinemaHallId = req.currentHallId
 
         // Step 2: Insert screen
         const insertQuery = `
@@ -108,17 +102,16 @@ export const editScreen = async (req, res) => {
     const client = await pool.connect()
 
     try {
-        // Step 1: Ensure screen belongs to admin's hall
+        // Step 1: Ensure screen belongs to the active hall
         const screenCheckQuery = `
       SELECT s.* 
       FROM screens s
-      JOIN cinema_hall h ON s.cinema_hall_id = h.id
-      WHERE s.id = $1 AND h.admin_id = $2
+      WHERE s.id = $1 AND s.cinema_hall_id = $2
     `
 
         const screenCheckResult = await client.query(screenCheckQuery, [
             screenId,
-            req.admin.id
+            req.currentHallId
         ])
 
         if (screenCheckResult.rows.length === 0) {
@@ -161,13 +154,12 @@ export const deleteScreen = async (req, res) => {
         const screenCheckQuery = `
       SELECT s.id
       FROM screens s
-      JOIN cinema_hall h ON s.cinema_hall_id = h.id
-      WHERE s.id = $1 AND h.admin_id = $2
+      WHERE s.id = $1 AND s.cinema_hall_id = $2
     `
 
         const screenCheckResult = await client.query(screenCheckQuery, [
             screenId,
-            req.admin.id
+            req.currentHallId
         ])
 
         if (screenCheckResult.rows.length === 0) {
@@ -195,12 +187,11 @@ export const getMyScreens = async (req, res) => {
         const query = `
       SELECT s.*
       FROM screens s
-      JOIN cinema_hall h ON s.cinema_hall_id = h.id
-      WHERE h.admin_id = $1
+      WHERE s.cinema_hall_id = $1
       ORDER BY s.created_at DESC
     `
 
-        const result = await client.query(query, [req.admin.id])
+        const result = await client.query(query, [req.currentHallId])
 
         res.json(result.rows)
     } catch (error) {

@@ -109,10 +109,13 @@ export const verifyScreenOwnership = async (req, res, next) => {
       return res.status(400).json({ message: "Screen ID(s) are required" });
     }
 
-    // 🎯 Get allowed cinema hall IDs from req.my_cinema_hall
-    const allowedHallIds = Array.isArray(req.my_cinema_hall)
-      ? req.my_cinema_hall.map(hall => hall.id)
-      : [req.my_cinema_hall.id];
+    // Prefer currentHallId (set by requireActiveHall) for strict hall isolation.
+    // Falls back to my_cinema_hall for legacy routes that still use verifyCinemaHall.
+    const allowedHallIds = req.currentHallId
+      ? [req.currentHallId]
+      : Array.isArray(req.my_cinema_hall)
+        ? req.my_cinema_hall.map(hall => hall.id)
+        : [req.my_cinema_hall?.id].filter(Boolean);
 
     // 🧠 Query all screen_id’s cinema_hall_id in one go
     const result = await db.query(
@@ -164,6 +167,38 @@ export const verifyCustomer = async (req, res, next) => {
     return res.status(403).json({ message: 'Invalid or expired customer access token' })
   }
 }
+
+// ✅ requireActiveHall — hall-scoped data isolation
+// Must be placed AFTER verifyCinemaAdminAccessToken so req.admin is populated.
+// Reads X-Hall-Id header, verifies the hall belongs to req.admin.id,
+// and sets req.currentHallId for use in controllers.
+export const requireActiveHall = async (req, res, next) => {
+  const hallId = req.headers['x-hall-id'];
+
+  if (!hallId) {
+    return res.status(400).json({ message: 'X-Hall-Id header is required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT id FROM cinema_hall WHERE id = $1 AND admin_id = $2 AND is_active = TRUE`,
+      [hallId, req.admin.id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(403).json({ message: 'Hall not found or access denied' });
+    }
+
+    req.currentHallId = rows[0].id;
+    next();
+  } catch (err) {
+    logger.error('❌ requireActiveHall error:', { message: err.message });
+    return res.status(500).json({ message: 'Internal error verifying hall access' });
+  } finally {
+    client.release();
+  }
+};
 
 // ✅ Middleware to verify Customer Refresh Token
 export const verifyCustomerRefreshToken = (req, res, next) => {

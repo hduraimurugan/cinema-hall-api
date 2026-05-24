@@ -28,6 +28,7 @@ import customersRoutes from './routes/customers.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import tmdbRoutes from './routes/tmdb.routes.js';
 import refundRoutes from './routes/refund.routes.js';
+import hallRoutes from './routes/halls.routes.js';
 import { cleanupExpiredHolds } from './controllers/booking.Controller.js';
 import { updateShowStatuses } from './controllers/shows.Controller.js';
 
@@ -55,7 +56,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Credentials", "true");
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Hall-Id");
 
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
@@ -112,6 +113,7 @@ app.use('/api/customers', customersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/tmdb', tmdbRoutes);
 app.use('/api/refunds', refundRoutes);
+app.use('/api/halls', hallRoutes);
 
 // Ping route
 app.get('/ping', (req, res) => res.send('pong'));

@@ -7,8 +7,7 @@ import logger from '../utils/logger.js';
  * Query: status, from_date, to_date, page
  */
 export const getRefunds = async (req, res) => {
-  const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
-  if (!cinema_hall_id) return res.status(400).json({ error: "Cinema hall not found" });
+  const cinema_hall_id = req.currentHallId;
 
   const { status, from_date, to_date, page = 1, limit: limitParam = 10 } = req.query;
   const limit = Math.min(Math.max(parseInt(limitParam, 10) || 10, 1), 100);
@@ -98,7 +97,7 @@ export const getRefunds = async (req, res) => {
  * Admin: get refund record for a specific booking
  */
 export const getRefundByBooking = async (req, res) => {
-  const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
+  const cinema_hall_id = req.currentHallId;
   const { booking_id } = req.params;
 
   try {
@@ -129,7 +128,7 @@ export const getRefundByBooking = async (req, res) => {
  * Use when Razorpay webhook was missed or in test/offline scenarios
  */
 export const manuallySettleRefund = async (req, res) => {
-  const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
+  const cinema_hall_id = req.currentHallId;
   const { refund_id } = req.params;
 
   try {

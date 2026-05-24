@@ -321,11 +321,7 @@ export const getMyBookings = async (req, res) => {
  * Auth: Admin + Cinema Hall required
  */
 export const getCinemaHallBookings = async (req, res) => {
-    const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
-
-    if (!cinema_hall_id) {
-        return res.status(400).json({ error: "Cinema hall not found" });
-    }
+    const cinema_hall_id = req.currentHallId;
 
     const { from_date, to_date, search, status, screen_id, page = 1, limit: limitParam = 10 } = req.query;
     const limit = Math.min(Math.max(parseInt(limitParam) || 10, 1), 100);
@@ -420,11 +416,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9
 
 export const verifyBookingById = async (req, res) => {
     const { booking_id } = req.params;
-    const cinema_hall_id = req.my_cinema_hall?.id || req.my_cinema_hall?.[0]?.id;
-
-    if (!cinema_hall_id) {
-        return res.status(400).json({ error: "Cinema hall not found" });
-    }
+    const cinema_hall_id = req.currentHallId;
 
     if (!UUID_REGEX.test(booking_id)) {
         return res.status(400).json({ error: "Invalid booking ID format" });
