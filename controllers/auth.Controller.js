@@ -8,10 +8,10 @@ const isProduction = process.env.NODE_ENV === 'production'
 
 // ✅ Register Admin
 export const registerCinemaAdmin = async (req, res) => {
-  const { name, email, password, phone, hall_name, hall_location, hall_district, hall_state, latitude, longitude } = req.body
+  const { name, email, password, phone } = req.body
 
-  if (!name || !email || !password || !phone || !hall_name || !hall_location) {
-    return res.status(400).json({ error: 'All fields are required.' })
+  if (!name || !email || !password || !phone) {
+    return res.status(400).json({ error: 'Name, email, password, and phone are required.' })
   }
 
   try {
@@ -24,19 +24,9 @@ export const registerCinemaAdmin = async (req, res) => {
       [name, email, hashedPassword, phone]
     )
 
-    const adminId = userResult.rows[0].id
-
-    const hallResult = await pool.query(
-      `INSERT INTO cinema_hall (admin_id, name, location, district, state, latitude, longitude)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, location, district, state, latitude, longitude, created_at`,
-      [adminId, hall_name, hall_location, hall_district, hall_state, latitude ?? null, longitude ?? null]
-    )
-
     res.status(201).json({
       message: 'Cinema admin registered successfully!',
       admin: userResult.rows[0],
-      hall: hallResult.rows[0],
     })
   } catch (err) {
     logger.error('❌ Registration error:', { message: err.message })
