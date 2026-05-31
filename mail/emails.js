@@ -7,6 +7,9 @@ import {
   ADMIN_PASSWORD_RESET_TEMPLATE,
   ADMIN_PASSWORD_CHANGED_TEMPLATE,
   ADMIN_ACCOUNT_LOCKED_TEMPLATE,
+  CUSTOMER_OTP_TEMPLATE,
+  CUSTOMER_ACCOUNT_LOCKED_TEMPLATE,
+  CUSTOMER_PASSWORD_CHANGED_TEMPLATE,
 } from "./emailTemplate.js"
 import { transporter } from "./mail.config.js"
 import dotenv from 'dotenv';
@@ -169,4 +172,79 @@ export const sendResetSuccessEmail = async (email) => {
         logger.error(`Error sending password reset success email: ${error}`);
         throw new Error(`Error sending password reset success email: ${error}`);
     }
+}
+
+// ─── Customer Auth Emails ──────────────────────────────────────────────────────
+
+/**
+ * Send an OTP email to a customer.
+ * @param {string} email
+ * @param {string} name
+ * @param {string} otp        - plain-text OTP to display (NOT the hash)
+ * @param {'signup'|'password_reset'} type
+ */
+export const sendCustomerOtpEmail = async (email, name, otp, type = 'signup') => {
+  const isReset = type === 'password_reset'
+  const otpTitle    = isReset ? 'Password Reset OTP'   : 'Email Verification'
+  const otpSubtitle = isReset ? 'Reset your password'  : 'Verify your email address'
+  const subject     = isReset ? 'Your CineMax password reset OTP' : 'Verify your CineMax account'
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject,
+      html: CUSTOMER_OTP_TEMPLATE
+        .replace(/{name}/g,        name)
+        .replace(/{otp}/g,         otp)
+        .replace(/{otpTitle}/g,    otpTitle)
+        .replace(/{otpSubtitle}/g, otpSubtitle),
+      category: 'Customer OTP',
+    })
+    logger.info('Customer OTP email sent', { email, type })
+  } catch (error) {
+    logger.error('Error sending customer OTP email:', { message: error.message })
+    throw new Error('Error sending customer OTP email')
+  }
+}
+
+export const sendCustomerAccountLockedEmail = async (email, name, lockedUntil) => {
+  const lockedUntilStr = new Date(lockedUntil).toLocaleString('en-IN', {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata',
+  })
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: 'Your CineMax account has been locked',
+      html: CUSTOMER_ACCOUNT_LOCKED_TEMPLATE
+        .replace(/{name}/g,        name)
+        .replace(/{lockedUntil}/g, lockedUntilStr),
+      category: 'Customer Account Locked',
+    })
+    logger.info('Customer account locked notification sent', { email })
+  } catch (error) {
+    logger.error('Error sending customer account locked email:', { message: error.message })
+    // Non-fatal
+  }
+}
+
+export const sendCustomerPasswordChangedEmail = async (email, name) => {
+  const changedAt = new Date().toLocaleString('en-IN', {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata',
+  })
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: 'Your CineMax password was changed',
+      html: CUSTOMER_PASSWORD_CHANGED_TEMPLATE
+        .replace(/{name}/g,      name)
+        .replace(/{changedAt}/g, changedAt),
+      category: 'Customer Password Changed',
+    })
+    logger.info('Customer password changed notification sent', { email })
+  } catch (error) {
+    logger.error('Error sending customer password changed email:', { message: error.message })
+    // Non-fatal
+  }
 }

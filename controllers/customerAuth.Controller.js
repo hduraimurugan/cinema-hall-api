@@ -1,10 +1,31 @@
 import pool from '../db.js'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
-import { generateCustomerTokenAndSetCookie, generateTokenAndSetCookie } from '../utils/generateTokenAndSetCookie.js'
+import crypto from 'crypto'
+import { generateCustomerTokenAndSetCookie } from '../utils/generateTokenAndSetCookie.js'
+import { hashToken } from '../utils/hashToken.js'
+import { validatePassword } from '../utils/passwordPolicy.js'
+import {
+  sendCustomerOtpEmail,
+  sendCustomerAccountLockedEmail,
+  sendCustomerPasswordChangedEmail,
+} from '../mail/emails.js'
 import logger from '../utils/logger.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
+
+// Tiered account lockout thresholds (same as admin)
+const LOCKOUT_THRESHOLDS = [
+  { attempts: 5,  lockMinutes: 15   },
+  { attempts: 10, lockMinutes: 60   },
+  { attempts: 15, lockMinutes: 1440 }, // 24 h
+]
+
+/** Returns the lock duration (minutes) for a given attempt count, or 0 if no lock. */
+const getLockDuration = (attempts) => {
+  const tier = [...LOCKOUT_THRESHOLDS].reverse().find(t => attempts >= t.attempts)
+  return tier ? tier.lockMinutes : 0
+}
 
 // ✅ Customer Signup
 export const registerCustomer = async (req, res) => {
@@ -14,27 +35,23 @@ export const registerCustomer = async (req, res) => {
     return res.status(400).json({ error: 'Name, email, and password are required.' })
   }
 
+  // Enforce password policy
+  const policyError = validatePassword(password)
+  if (policyError) return res.status(400).json({ error: policyError })
+
   try {
-    // Check if customer already exists
-    const existing = await pool.query(`SELECT * FROM customers WHERE email = $1`, [email])
+    const existing = await pool.query(`SELECT id FROM customers WHERE email = $1`, [email])
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'Email already registered' })
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10)
+    const hashedPassword = await bcrypt.hash(password, 12)
 
     const result = await pool.query(
       `INSERT INTO customers (name, email, password, phone, district, state)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, name, email, phone, district, state, is_verified, created_at`,
-      [
-        name,
-        email,
-        hashedPassword,
-        phone || null,
-        district || '', // fallback to empty string
-        state || '',    // fallback to empty string
-      ]
+      [name, email, hashedPassword, phone || null, district || '', state || '']
     )
 
     res.status(201).json({
@@ -47,7 +64,7 @@ export const registerCustomer = async (req, res) => {
   }
 }
 
-// ✅ Customer Login
+// ✅ Customer Login — with account lockout + brute-force hints
 export const loginCustomer = async (req, res) => {
   const { email, password } = req.body
 
@@ -57,30 +74,81 @@ export const loginCustomer = async (req, res) => {
 
   try {
     const result = await pool.query(`SELECT * FROM customers WHERE email = $1`, [email])
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Customer not found' })
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' })
+    }
 
     const customer = result.rows[0]
+
+    // Check account lockout
+    if (customer.account_locked_until && new Date(customer.account_locked_until) > new Date()) {
+      return res.status(423).json({
+        code: 'ACCOUNT_LOCKED',
+        error: 'Account is temporarily locked due to multiple failed login attempts.',
+        lockedUntil: customer.account_locked_until,
+      })
+    }
+
     const match = await bcrypt.compare(password, customer.password)
 
-    if (!match) return res.status(400).json({ error: 'Invalid password' })
+    if (!match) {
+      const newAttempts = (customer.failed_login_attempts || 0) + 1
+      const lockMinutes = getLockDuration(newAttempts)
+
+      const updateFields = { failed_login_attempts: newAttempts }
+      if (lockMinutes > 0) {
+        const lockedUntil = new Date(Date.now() + lockMinutes * 60 * 1000)
+        updateFields.account_locked_until = lockedUntil
+
+        await pool.query(
+          `UPDATE customers
+           SET failed_login_attempts = $1, account_locked_until = $2
+           WHERE id = $3`,
+          [newAttempts, lockedUntil, customer.id]
+        )
+
+        // Send lockout notification email (non-fatal)
+        sendCustomerAccountLockedEmail(customer.email, customer.name, lockedUntil).catch(() => {})
+
+        return res.status(423).json({
+          code: 'ACCOUNT_LOCKED',
+          error: `Account locked for ${lockMinutes < 60 ? lockMinutes + ' minutes' : lockMinutes / 60 + ' hours'} due to too many failed attempts.`,
+          lockedUntil,
+        })
+      }
+
+      await pool.query(
+        `UPDATE customers SET failed_login_attempts = $1 WHERE id = $2`,
+        [newAttempts, customer.id]
+      )
+
+      // Hint: how many attempts until next lock tier
+      const nextTier = LOCKOUT_THRESHOLDS.find(t => t.attempts > newAttempts)
+      const hint = nextTier
+        ? `${nextTier.attempts - newAttempts} attempt${nextTier.attempts - newAttempts === 1 ? '' : 's'} remaining before account is locked.`
+        : null
+
+      return res.status(400).json({ error: 'Invalid password', ...(hint && { hint }) })
+    }
 
     if (!customer.is_verified) {
       return res.status(403).json({ error: 'Email not verified. Please verify using OTP.' })
     }
 
-    const tokenPayload = {
-      id: customer.id,
-      name: customer.name,
-      email: customer.email,
-      role: 'customer',
-    }
+    // Successful login — reset lockout counters + update last_login_at
+    await pool.query(
+      `UPDATE customers
+       SET failed_login_attempts = 0, account_locked_until = NULL, last_login_at = now()
+       WHERE id = $1`,
+      [customer.id]
+    )
 
-    const { accessToken, refreshToken } = generateCustomerTokenAndSetCookie(res, tokenPayload)
+    const tokenPayload = { id: customer.id, name: customer.name, email: customer.email, role: 'customer' }
+    const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
+    await generateCustomerTokenAndSetCookie(res, tokenPayload, meta)
 
     res.json({
       message: 'Login successful',
-      accessToken,
-      refreshToken,
       customer: {
         id: customer.id,
         name: customer.name,
@@ -96,19 +164,20 @@ export const loginCustomer = async (req, res) => {
   }
 }
 
-// ✅ Logout
+// ✅ Logout — revokes session in DB
 export const logoutCustomer = async (req, res) => {
   try {
-    res.clearCookie('cusAccessToken', {
-      httpOnly: true,
-      sameSite: isProduction ? 'None' : 'Lax',
-      secure: isProduction,
-    })
-    res.clearCookie('cusRefreshToken', {
-      httpOnly: true,
-      sameSite: isProduction ? 'None' : 'Lax',
-      secure: isProduction,
-    })
+    const refreshToken = req.cookies.cusRefreshToken
+    if (refreshToken) {
+      const tokenHash = hashToken(refreshToken)
+      pool.query(
+        `UPDATE customer_sessions SET is_revoked = TRUE WHERE refresh_token_hash = $1`,
+        [tokenHash]
+      ).catch(() => {})
+    }
+
+    res.clearCookie('cusAccessToken', { httpOnly: true, sameSite: isProduction ? 'None' : 'Lax', secure: isProduction })
+    res.clearCookie('cusRefreshToken', { httpOnly: true, sameSite: isProduction ? 'None' : 'Lax', secure: isProduction })
     res.status(200).json({ message: 'Logged out successfully' })
   } catch (err) {
     logger.error('❌ Logout error:', { message: err.message })
@@ -116,76 +185,209 @@ export const logoutCustomer = async (req, res) => {
   }
 }
 
-// ✅ Update Customer Profile
+// ✅ Update Customer Profile (name, phone, location — no password here)
 export const updateCustomerProfile = async (req, res) => {
-  const customerId = req.customer?.id // assuming middleware attaches decoded JWT payload to req.user
-  logger.debug("Authenticated Customer ID:", { customerId });
-  
-  const { name, phone, district, state, password } = req.body
+  const customerId = req.customer?.id
+  logger.debug('Authenticated Customer ID:', { customerId })
 
-  if (!customerId) {
-    return res.status(401).json({ error: 'Unauthorized. Please log in.' })
-  }
+  const { name, phone, district, state } = req.body
+
+  if (!customerId) return res.status(401).json({ error: 'Unauthorized. Please log in.' })
 
   try {
-    // Fetch existing customer
     const existing = await pool.query(`SELECT * FROM customers WHERE id = $1`, [customerId])
-    if (existing.rows.length === 0) {
-      return res.status(404).json({ error: 'Customer not found' })
-    }
+    if (existing.rows.length === 0) return res.status(404).json({ error: 'Customer not found' })
 
-    // Prepare update fields
-    let updateFields = [
-      name || existing.rows[0].name,
-      phone || existing.rows[0].phone,
-      district || existing.rows[0].district,
-      state || existing.rows[0].state,
-    ]
+    const row = existing.rows[0]
+    const result = await pool.query(
+      `UPDATE customers
+       SET name = $1, phone = $2, district = $3, state = $4, updated_at = now()
+       WHERE id = $5
+       RETURNING id, name, email, phone, district, state, is_verified, created_at, updated_at`,
+      [
+        name     ?? row.name,
+        phone    ?? row.phone,
+        district ?? row.district,
+        state    ?? row.state,
+        customerId,
+      ]
+    )
 
-    let query = `
-      UPDATE customers
-      SET name = $1,
-          phone = $2,
-          district = $3,
-          state = $4,
-          updated_at = now()
-    `
-
-    // If password update is requested
-    if (password) {
-      const hashedPassword = await bcrypt.hash(password, 10)
-      updateFields.push(hashedPassword)
-      query += `, password = $${updateFields.length}`
-    }
-
-    // Add WHERE condition
-    updateFields.push(customerId)
-    query += ` WHERE id = $${updateFields.length}
-               RETURNING id, name, email, phone, district, state, is_verified, created_at, updated_at`
-
-    // Execute query
-    const result = await pool.query(query, updateFields)
-
-    res.json({
-      message: 'Profile updated successfully',
-      customer: result.rows[0],
-    })
+    res.json({ message: 'Profile updated successfully', customer: result.rows[0] })
   } catch (err) {
     logger.error('❌ Update profile error:', { message: err.message })
     res.status(500).json({ error: 'Profile update failed. Try again later.' })
   }
 }
 
+// ✅ Change Password (authenticated)
+export const changePasswordCustomer = async (req, res) => {
+  const customerId = req.customer?.id
+  if (!customerId) return res.status(401).json({ error: 'Unauthorized.' })
+
+  const { currentPassword, newPassword } = req.body
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'currentPassword and newPassword are required.' })
+  }
+
+  // Enforce password policy on new password
+  const policyError = validatePassword(newPassword)
+  if (policyError) return res.status(400).json({ error: policyError })
+
+  try {
+    const result = await pool.query(`SELECT * FROM customers WHERE id = $1`, [customerId])
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Customer not found' })
+
+    const customer = result.rows[0]
+
+    // Verify current password
+    const match = await bcrypt.compare(currentPassword, customer.password)
+    if (!match) return res.status(400).json({ error: 'Current password is incorrect.' })
+
+    // Reject if new password == current
+    const sameAsOld = await bcrypt.compare(newPassword, customer.password)
+    if (sameAsOld) return res.status(400).json({ error: 'New password must be different from your current password.' })
+
+    const hashedNew = await bcrypt.hash(newPassword, 12)
+
+    // Get the current refresh token hash so we can keep this session active
+    const currentRefreshToken = req.cookies.cusRefreshToken
+    const currentTokenHash = currentRefreshToken ? hashToken(currentRefreshToken) : null
+
+    await pool.query(
+      `UPDATE customers SET password = $1, password_changed_at = now() WHERE id = $2`,
+      [hashedNew, customerId]
+    )
+
+    // Revoke all OTHER sessions (keep current device logged in)
+    if (currentTokenHash) {
+      await pool.query(
+        `UPDATE customer_sessions SET is_revoked = TRUE
+         WHERE customer_id = $1 AND refresh_token_hash != $2`,
+        [customerId, currentTokenHash]
+      )
+    } else {
+      await pool.query(
+        `UPDATE customer_sessions SET is_revoked = TRUE WHERE customer_id = $1`,
+        [customerId]
+      )
+    }
+
+    // Send notification email (non-fatal)
+    sendCustomerPasswordChangedEmail(customer.email, customer.name).catch(() => {})
+
+    res.json({ message: 'Password changed successfully. Other devices have been signed out.' })
+  } catch (err) {
+    logger.error('❌ Change password error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to change password. Try again later.' })
+  }
+}
+
+// ✅ Forgot Password — sends OTP to email (generic response to prevent enumeration)
+export const forgotPasswordCustomer = async (req, res) => {
+  const { email } = req.body
+  if (!email) return res.status(400).json({ error: 'Email is required.' })
+
+  // Always return a generic response — never reveal if the email exists
+  const GENERIC_MSG = 'If an account with that email exists, a password reset OTP has been sent.'
+
+  try {
+    const result = await pool.query(`SELECT id, name FROM customers WHERE email = $1`, [email])
+    if (result.rows.length === 0) return res.json({ message: GENERIC_MSG })
+
+    const customer = result.rows[0]
+
+    // Delegate to OTP logic: hash + store + email (password_reset type)
+    // Rate limit check (3 per 10 min) is handled inside otp.Controller.js
+    const otpHash = await _generateAndSendOtp(email, customer.name, 'password_reset')
+    if (!otpHash) return res.json({ message: GENERIC_MSG }) // rate-limited, still generic
+
+    res.json({ message: GENERIC_MSG })
+  } catch (err) {
+    logger.error('❌ Forgot password error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to process request. Try again later.' })
+  }
+}
+
+// ✅ Reset Password — verifies OTP then updates password
+export const resetPasswordCustomer = async (req, res) => {
+  const { email, otp, newPassword } = req.body
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({ error: 'email, otp, and newPassword are required.' })
+  }
+
+  // Enforce password policy
+  const policyError = validatePassword(newPassword)
+  if (policyError) return res.status(400).json({ error: policyError })
+
+  try {
+    // Look up OTP record
+    const otpResult = await pool.query(
+      `SELECT * FROM otp_verifications WHERE email = $1 AND type = 'password_reset'`,
+      [email]
+    )
+    if (otpResult.rows.length === 0) return res.status(400).json({ error: 'No password reset OTP found. Please request a new one.' })
+
+    const otpRecord = otpResult.rows[0]
+
+    if (otpRecord.is_verified) return res.status(400).json({ error: 'OTP already used.' })
+    if (otpRecord.expires_at < new Date()) return res.status(400).json({ code: 'OTP_EXPIRED', error: 'OTP has expired. Please request a new one.' })
+    if (otpRecord.otp_attempts >= 5) return res.status(400).json({ code: 'OTP_ATTEMPTS_EXCEEDED', error: 'Too many incorrect attempts. Please request a new OTP.' })
+
+    const inputHash = crypto.createHash('sha256').update(otp.toString()).digest('hex')
+    if (otpRecord.otp !== inputHash) {
+      await pool.query(
+        `UPDATE otp_verifications SET otp_attempts = otp_attempts + 1 WHERE id = $1`,
+        [otpRecord.id]
+      )
+      const remaining = 5 - (otpRecord.otp_attempts + 1)
+      return res.status(400).json({
+        error: remaining > 0
+          ? `Invalid OTP. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+          : 'Invalid OTP. No attempts remaining — please request a new OTP.',
+      })
+    }
+
+    // OTP is valid — fetch customer
+    const customerResult = await pool.query(`SELECT * FROM customers WHERE email = $1`, [email])
+    if (customerResult.rows.length === 0) return res.status(404).json({ error: 'Customer not found' })
+    const customer = customerResult.rows[0]
+
+    // Same-password check
+    const sameAsOld = await bcrypt.compare(newPassword, customer.password)
+    if (sameAsOld) return res.status(400).json({ error: 'New password must be different from your current password.' })
+
+    const hashedNew = await bcrypt.hash(newPassword, 12)
+
+    // Mark OTP used + update password + revoke ALL sessions
+    await pool.query(`UPDATE otp_verifications SET is_verified = true WHERE id = $1`, [otpRecord.id])
+    await pool.query(
+      `UPDATE customers SET password = $1, password_changed_at = now(),
+       failed_login_attempts = 0, account_locked_until = NULL WHERE id = $2`,
+      [hashedNew, customer.id]
+    )
+    await pool.query(
+      `UPDATE customer_sessions SET is_revoked = TRUE WHERE customer_id = $1`,
+      [customer.id]
+    )
+
+    // Send notification email (non-fatal)
+    sendCustomerPasswordChangedEmail(customer.email, customer.name).catch(() => {})
+
+    res.json({ message: 'Password reset successfully. Please sign in with your new password.' })
+  } catch (err) {
+    logger.error('❌ Reset password error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to reset password. Try again later.' })
+  }
+}
+
 // ✅ Refresh Access Token
 export const refreshCustomerToken = async (req, res) => {
   try {
-    // req.customer is already populated by verifyCustomerRefreshToken middleware
     const customerId = req.customer.id
 
     const result = await pool.query(`SELECT * FROM customers WHERE id = $1`, [customerId])
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Customer not found' })
-    }
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Customer not found' })
 
     const customer = result.rows[0]
 
@@ -216,20 +418,50 @@ export const getCustomerMe = async (req, res) => {
 
     const result = await pool.query(
       `SELECT id, name, email, phone, district, state, is_verified, created_at, updated_at
-       FROM customers
-       WHERE id = $1`,
+       FROM customers WHERE id = $1`,
       [customerId]
     )
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Customer not found' })
-    }
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Customer not found' })
 
-    res.json({
-      customer: result.rows[0],
-    })
+    res.json({ customer: result.rows[0] })
   } catch (err) {
     logger.error('❌ getCustomerMe error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch customer info' })
   }
+}
+
+// ─── Internal helper ─────────────────────────────────────────────────────────
+// Generates, hashes, and stores an OTP, then sends the email.
+// Returns the hash on success, null if rate-limited.
+async function _generateAndSendOtp(email, name, type) {
+  const OTP_RATE_LIMIT = 3
+  const OTP_RATE_WINDOW_MS = 10 * 60 * 1000
+  const windowStart = new Date(Date.now() - OTP_RATE_WINDOW_MS)
+
+  const recentResult = await pool.query(
+    `SELECT COUNT(*) FROM otp_verifications WHERE email = $1 AND type = $2 AND created_at > $3`,
+    [email, type, windowStart]
+  )
+  if (parseInt(recentResult.rows[0].count, 10) >= OTP_RATE_LIMIT) return null
+
+  const crypto = await import('crypto')
+  const otp = Math.floor(100000 + Math.random() * 900000).toString()
+  const otpHash = crypto.default.createHash('sha256').update(otp).digest('hex')
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
+
+  await pool.query(
+    `INSERT INTO otp_verifications (email, type, otp, is_verified, otp_attempts, created_at, expires_at)
+     VALUES ($1, $2, $3, false, 0, now(), $4)
+     ON CONFLICT (email, type) DO UPDATE
+     SET otp          = EXCLUDED.otp,
+         is_verified  = false,
+         otp_attempts = 0,
+         created_at   = now(),
+         expires_at   = EXCLUDED.expires_at`,
+    [email, type, otpHash, expiresAt]
+  )
+
+  await sendCustomerOtpEmail(email, name, otp, type)
+  return otpHash
 }

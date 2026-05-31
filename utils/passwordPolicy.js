@@ -8,25 +8,25 @@ const POLICY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()\-_=+\[\]{}
 /**
  * Validate a password against the policy.
  * @param {string} password
- * @returns {{ valid: boolean, message?: string }}
+ * @returns {string | null} — error message string if invalid, null if valid
  */
 export const validatePassword = (password) => {
   if (!password || password.length < 8) {
-    return { valid: false, message: 'Password must be at least 8 characters.' }
+    return 'Password must be at least 8 characters.'
   }
   if (!/[a-z]/.test(password)) {
-    return { valid: false, message: 'Password must contain at least one lowercase letter.' }
+    return 'Password must contain at least one lowercase letter.'
   }
   if (!/[A-Z]/.test(password)) {
-    return { valid: false, message: 'Password must contain at least one uppercase letter.' }
+    return 'Password must contain at least one uppercase letter.'
   }
   if (!/\d/.test(password)) {
-    return { valid: false, message: 'Password must contain at least one number.' }
+    return 'Password must contain at least one number.'
   }
   if (!/[!@#$%^&*()\-_=+\[\]{};':"\\|,.<>\/?`~]/.test(password)) {
-    return { valid: false, message: 'Password must contain at least one special character.' }
+    return 'Password must contain at least one special character.'
   }
-  return { valid: true }
+  return null
 }
 
 /**

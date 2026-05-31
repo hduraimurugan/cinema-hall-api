@@ -385,3 +385,191 @@ export const PASSWORD_RESET_SUCCESS_TEMPLATE = `
 </html>
 `;
 
+// ─── Customer Auth Email Templates ────────────────────────────────────────────
+// Cinema-branded dark theme matching admin templates.
+// Placeholders: {name}, {otp}, {otpTitle}, {otpSubtitle}, {lockedUntil}, {changedAt}
+
+// ── Customer: OTP (signup verification & password reset) ─────────────────────
+export const CUSTOMER_OTP_TEMPLATE = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{otpTitle}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0f0f14;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0f14;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <tr>
+            <td style="padding:0 0 32px 0;text-align:center;">
+              <table cellpadding="0" cellspacing="0" style="display:inline-table;">
+                <tr>
+                  <td style="background:rgba(244,63,94,0.15);border:1px solid rgba(244,63,94,0.3);border-radius:12px;padding:10px 14px;vertical-align:middle;">
+                    <span style="font-size:20px;">🎬</span>
+                  </td>
+                  <td style="padding-left:10px;vertical-align:middle;">
+                    <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:0.5px;">CineMax</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#16161e;border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:40px 40px 32px;">
+              <p style="color:#f43f5e;font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin:0 0 12px;">{otpTitle}</p>
+              <h1 style="color:#ffffff;font-size:26px;font-weight:700;margin:0 0 16px;line-height:1.3;">{otpSubtitle}</h1>
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 28px;">
+                Hi <strong style="color:#e2e8f0;">{name}</strong>, use the one-time code below. It expires in <strong style="color:#f43f5e;">5 minutes</strong>.
+              </p>
+              <table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 28px;">
+                <tr>
+                  <td align="center">
+                    <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);border-radius:12px;display:inline-block;padding:20px 40px;">
+                      <span style="color:#f43f5e;font-size:36px;font-weight:800;letter-spacing:12px;font-family:'Courier New',monospace;">{otp}</span>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <table cellpadding="0" cellspacing="0" width="100%" style="background:rgba(244,63,94,0.06);border:1px solid rgba(244,63,94,0.15);border-radius:8px;margin:0 0 24px;">
+                <tr>
+                  <td style="padding:14px 16px;">
+                    <p style="color:#94a3b8;font-size:13px;margin:0;line-height:1.5;">⚠️ Never share this code with anyone. CineMax will never ask for your OTP. If you didn't request this, you can safely ignore this email.</p>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#64748b;font-size:13px;margin:0;">This code is valid for one use only and expires in 5 minutes.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 0 0;text-align:center;">
+              <p style="color:#334155;font-size:12px;margin:0;">© 2026 CineMax · This is an automated message, please do not reply.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`
+
+// ── Customer: Account Locked ──────────────────────────────────────────────────
+export const CUSTOMER_ACCOUNT_LOCKED_TEMPLATE = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your CineMax Account Has Been Locked</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0f0f14;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0f14;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <tr>
+            <td style="padding:0 0 32px 0;text-align:center;">
+              <table cellpadding="0" cellspacing="0" style="display:inline-table;">
+                <tr>
+                  <td style="background:rgba(244,63,94,0.15);border:1px solid rgba(244,63,94,0.3);border-radius:12px;padding:10px 14px;vertical-align:middle;">
+                    <span style="font-size:20px;">🎬</span>
+                  </td>
+                  <td style="padding-left:10px;vertical-align:middle;">
+                    <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:0.5px;">CineMax</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#16161e;border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:40px 40px 32px;">
+              <p style="color:#ef4444;font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin:0 0 12px;">Security Alert</p>
+              <h1 style="color:#ffffff;font-size:26px;font-weight:700;margin:0 0 16px;line-height:1.3;">Your account has been temporarily locked</h1>
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 28px;">
+                Hi <strong style="color:#e2e8f0;">{name}</strong>, we detected multiple failed login attempts on your account and have temporarily locked it to protect you.
+              </p>
+              <table cellpadding="0" cellspacing="0" width="100%" style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;margin:0 0 24px;">
+                <tr>
+                  <td style="padding:14px 16px;">
+                    <p style="color:#94a3b8;font-size:13px;margin:0 0 6px;line-height:1.5;"><strong style="color:#fca5a5;">Locked until:</strong> {lockedUntil}</p>
+                    <p style="color:#94a3b8;font-size:13px;margin:0;line-height:1.5;">Your account will unlock automatically. To regain access immediately, use the Forgot Password option.</p>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#64748b;font-size:13px;margin:0;">If this wasn't you, please reset your password immediately to secure your account.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 0 0;text-align:center;">
+              <p style="color:#334155;font-size:12px;margin:0;">© 2026 CineMax · This is an automated message, please do not reply.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`
+
+// ── Customer: Password Changed ────────────────────────────────────────────────
+export const CUSTOMER_PASSWORD_CHANGED_TEMPLATE = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your CineMax Password Was Changed</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0f0f14;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0f14;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <tr>
+            <td style="padding:0 0 32px 0;text-align:center;">
+              <table cellpadding="0" cellspacing="0" style="display:inline-table;">
+                <tr>
+                  <td style="background:rgba(244,63,94,0.15);border:1px solid rgba(244,63,94,0.3);border-radius:12px;padding:10px 14px;vertical-align:middle;">
+                    <span style="font-size:20px;">🎬</span>
+                  </td>
+                  <td style="padding-left:10px;vertical-align:middle;">
+                    <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:0.5px;">CineMax</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#16161e;border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:40px 40px 32px;">
+              <p style="color:#10b981;font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin:0 0 12px;">Password Updated</p>
+              <h1 style="color:#ffffff;font-size:26px;font-weight:700;margin:0 0 16px;line-height:1.3;">Your password has been changed</h1>
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 28px;">
+                Hi <strong style="color:#e2e8f0;">{name}</strong>, your CineMax account password was successfully updated on <strong style="color:#e2e8f0;">{changedAt}</strong>.
+              </p>
+              <table cellpadding="0" cellspacing="0" width="100%" style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;margin:0 0 24px;">
+                <tr>
+                  <td style="padding:14px 16px;">
+                    <p style="color:#94a3b8;font-size:13px;margin:0;line-height:1.5;">✅ All other active sessions have been signed out for your security. If this change was made by you, no further action is needed.</p>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#64748b;font-size:13px;margin:0;">If you did not make this change, please contact our support team immediately.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 0 0;text-align:center;">
+              <p style="color:#334155;font-size:12px;margin:0;">© 2026 CineMax · This is an automated message, please do not reply.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`
+

@@ -220,7 +220,7 @@ export const requireActiveHall = async (req, res, next) => {
 };
 
 // ✅ Middleware to verify Customer Refresh Token
-export const verifyCustomerRefreshToken = (req, res, next) => {
+export const verifyCustomerRefreshToken = async (req, res, next) => {
   const token = req.cookies.cusRefreshToken
   if (!token) {
     return res.status(401).json({ message: 'Customer refresh token missing' })
@@ -228,7 +228,26 @@ export const verifyCustomerRefreshToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.REFRESH_SECRET)
-    req.customer = decoded // attach decoded payload → { id, email, name }
+
+    // Check that the session has not been revoked in the DB
+    const tokenHash = hashToken(token)
+    const sessionResult = await pool.query(
+      `SELECT id, is_revoked FROM customer_sessions WHERE refresh_token_hash = $1`,
+      [tokenHash]
+    )
+
+    if (sessionResult.rows.length === 0 || sessionResult.rows[0].is_revoked) {
+      return res.status(401).json({ message: 'Session has been revoked. Please log in again.' })
+    }
+
+    // Update last_used_at (fire-and-forget)
+    pool.query(
+      `UPDATE customer_sessions SET last_used_at = now() WHERE refresh_token_hash = $1`,
+      [tokenHash]
+    ).catch(() => {})
+
+    req.customer = decoded
+    req.customerRefreshTokenHash = tokenHash // for logout revocation
     next()
   } catch (err) {
     logger.error('❌ Customer Refresh Token Error:', { message: err.message })

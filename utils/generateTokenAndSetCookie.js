@@ -58,7 +58,7 @@ export const generateTokenAndSetCookie = async (res, admin, meta = {}) => {
     return { accessToken, refreshToken }
 }
 
-export const generateCustomerTokenAndSetCookie = (res, customer) => {
+export const generateCustomerTokenAndSetCookie = async (res, customer, meta = {}) => {
     const payload = {
         id: customer.id,
         email: customer.email,
@@ -72,6 +72,18 @@ export const generateCustomerTokenAndSetCookie = (res, customer) => {
     const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, {
         expiresIn: "30d",
     })
+
+    // Store hashed refresh token in customer_sessions for server-side revocation
+    try {
+        const tokenHash = hashToken(refreshToken)
+        await pool.query(
+            `INSERT INTO customer_sessions (customer_id, refresh_token_hash, ip_address, user_agent)
+             VALUES ($1, $2, $3, $4)`,
+            [customer.id, tokenHash, meta.ip || null, meta.userAgent || null]
+        )
+    } catch (err) {
+        logger.error('❌ Failed to store customer session:', { message: err.message })
+    }
 
     res.cookie("cusAccessToken", accessToken, {
         httpOnly: true,
