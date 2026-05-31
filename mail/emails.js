@@ -1,9 +1,100 @@
-import { PASSWORD_RESET_REQUEST_TEMPLATE, PASSWORD_RESET_SUCCESS_TEMPLATE, VERIFICATION_EMAIL_TEMPLATE, WELCOME_EMAIL_TEMPLATE } from "./emailTemplate.js"
+import {
+  PASSWORD_RESET_REQUEST_TEMPLATE,
+  PASSWORD_RESET_SUCCESS_TEMPLATE,
+  VERIFICATION_EMAIL_TEMPLATE,
+  WELCOME_EMAIL_TEMPLATE,
+  ADMIN_VERIFY_EMAIL_TEMPLATE,
+  ADMIN_PASSWORD_RESET_TEMPLATE,
+  ADMIN_PASSWORD_CHANGED_TEMPLATE,
+  ADMIN_ACCOUNT_LOCKED_TEMPLATE,
+} from "./emailTemplate.js"
 import { transporter } from "./mail.config.js"
 import dotenv from 'dotenv';
 import logger from '../utils/logger.js';
 
 dotenv.config();
+
+// ─── Admin Auth Emails ─────────────────────────────────────────────────────────
+
+export const sendAdminVerificationEmail = async (email, name, verificationLink) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: 'Verify your CineMax Admin email',
+      html: ADMIN_VERIFY_EMAIL_TEMPLATE
+        .replace(/{name}/g, name)
+        .replace(/{verificationLink}/g, verificationLink),
+      category: 'Admin Email Verification',
+    })
+    logger.info('Admin verification email sent', { email })
+  } catch (error) {
+    logger.error('Error sending admin verification email:', { message: error.message })
+    throw new Error('Error sending admin verification email')
+  }
+}
+
+export const sendAdminPasswordResetEmail = async (email, name, resetLink) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: 'Reset your CineMax Admin password',
+      html: ADMIN_PASSWORD_RESET_TEMPLATE
+        .replace(/{name}/g, name)
+        .replace(/{resetLink}/g, resetLink),
+      category: 'Admin Password Reset',
+    })
+    logger.info('Admin password reset email sent', { email })
+  } catch (error) {
+    logger.error('Error sending admin password reset email:', { message: error.message })
+    throw new Error('Error sending admin password reset email')
+  }
+}
+
+export const sendAdminPasswordChangedEmail = async (email, name) => {
+  const changedAt = new Date().toLocaleString('en-IN', {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata',
+  })
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: 'Your CineMax Admin password was changed',
+      html: ADMIN_PASSWORD_CHANGED_TEMPLATE
+        .replace(/{name}/g, name)
+        .replace(/{changedAt}/g, changedAt),
+      category: 'Admin Password Changed',
+    })
+    logger.info('Admin password changed notification sent', { email })
+  } catch (error) {
+    logger.error('Error sending admin password changed email:', { message: error.message })
+    // Non-fatal: don't throw — password was already changed
+  }
+}
+
+export const sendAdminAccountLockedEmail = async (email, name, lockedUntil) => {
+  const lockedUntilStr = new Date(lockedUntil).toLocaleString('en-IN', {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata',
+  })
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: 'Your CineMax Admin account has been locked',
+      html: ADMIN_ACCOUNT_LOCKED_TEMPLATE
+        .replace(/{name}/g, name)
+        .replace(/{lockedUntil}/g, lockedUntilStr),
+      category: 'Admin Account Locked',
+    })
+    logger.info('Admin account locked notification sent', { email })
+  } catch (error) {
+    logger.error('Error sending admin account locked email:', { message: error.message })
+    // Non-fatal
+  }
+}
+
+// ─── Legacy Customer Emails ────────────────────────────────────────────────────
 
 export const sendVerificationEmail = async (email, verificationToken) => {
     const recipient = email;

@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken'
 import pool from '../db.js'
 import db from "../db.js";
 import logger from '../utils/logger.js';
+import { hashToken } from '../utils/hashToken.js';
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -22,8 +23,8 @@ export const verifyCinemaAdminAccessToken = async (req, res, next) => {
   }
 }
 
-// ✅ Middleware to verify Refresh Token
-export const verifyCinemaAdminRefreshToken = (req, res, next) => {
+// ✅ Middleware to verify Refresh Token (with session revocation check)
+export const verifyCinemaAdminRefreshToken = async (req, res, next) => {
   const token = req.cookies.refreshToken
   if (!token) {
     return res.status(401).json({ message: 'Refresh token missing' })
@@ -31,6 +32,24 @@ export const verifyCinemaAdminRefreshToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.REFRESH_SECRET)
+
+    // Check that the session has not been revoked in the DB
+    const tokenHash = hashToken(token)
+    const sessionResult = await pool.query(
+      `SELECT id, is_revoked FROM admin_sessions WHERE refresh_token_hash = $1`,
+      [tokenHash]
+    )
+
+    if (sessionResult.rows.length === 0 || sessionResult.rows[0].is_revoked) {
+      return res.status(401).json({ message: 'Session has been revoked. Please log in again.' })
+    }
+
+    // Update last_used_at
+    pool.query(
+      `UPDATE admin_sessions SET last_used_at = now() WHERE refresh_token_hash = $1`,
+      [tokenHash]
+    ).catch(() => {})
+
     req.admin = decoded
     next()
   } catch (err) {
