@@ -180,16 +180,25 @@ export const resendVerificationEmail = async (req, res) => {
       }
     }
 
-    await pool.query(`DELETE FROM admin_verification_tokens WHERE admin_id = $1`, [admin.id])
-
     const rawToken = generateVerificationToken()
     const tokenHash = hashToken(rawToken)
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
-    await pool.query(
-      `INSERT INTO admin_verification_tokens (admin_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-      [admin.id, tokenHash, expiresAt]
-    )
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query(`DELETE FROM admin_verification_tokens WHERE admin_id = $1`, [admin.id])
+      await client.query(
+        `INSERT INTO admin_verification_tokens (admin_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+        [admin.id, tokenHash, expiresAt]
+      )
+      await client.query('COMMIT')
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
 
     const adminFrontendUrl = process.env.ADMIN_FRONTEND_URL || 'http://localhost:5174'
     const verificationLink = `${adminFrontendUrl}/verify-email?token=${rawToken}`
@@ -433,16 +442,25 @@ export const forgotPassword = async (req, res) => {
 
     const admin = result.rows[0]
 
-    await pool.query(`DELETE FROM admin_password_reset_tokens WHERE admin_id = $1`, [admin.id])
-
     const rawToken = generateVerificationToken()
     const tokenHash = hashToken(rawToken)
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
 
-    await pool.query(
-      `INSERT INTO admin_password_reset_tokens (admin_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-      [admin.id, tokenHash, expiresAt]
-    )
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query(`DELETE FROM admin_password_reset_tokens WHERE admin_id = $1`, [admin.id])
+      await client.query(
+        `INSERT INTO admin_password_reset_tokens (admin_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+        [admin.id, tokenHash, expiresAt]
+      )
+      await client.query('COMMIT')
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
 
     const adminFrontendUrl = process.env.ADMIN_FRONTEND_URL || 'http://localhost:5174'
     const resetLink = `${adminFrontendUrl}/reset-password?token=${rawToken}`
