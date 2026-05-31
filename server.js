@@ -41,8 +41,8 @@ const appStartTime = process.hrtime();
 
 // Allowed origins
 const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:5174",
+  process.env.ADMIN_FRONTEND_URL || "http://localhost:5174",
+  process.env.USER_FRONTEND_URL  || "http://localhost:5173",
   "http://localhost:5175",
   "https://cinema-hall-admin.vercel.app",
   "https://cinimax-eta.vercel.app"
