@@ -13,6 +13,13 @@ ALTER TABLE cinema_admin_user
   ADD COLUMN IF NOT EXISTS password_changed_at   TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS last_login_at         TIMESTAMPTZ;
 
+-- Mark all pre-existing admins as email-verified.
+-- They registered before this migration was introduced, so they
+-- don't have a verification token and should not be locked out.
+UPDATE cinema_admin_user
+  SET email_verified = TRUE, email_verified_at = now()
+  WHERE email_verified = FALSE;
+
 -- ── 2. Email verification tokens ────────────────────────────
 -- Raw token is sent in email; only the SHA-256 hash is stored.
 CREATE TABLE IF NOT EXISTS admin_verification_tokens (

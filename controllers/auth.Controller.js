@@ -126,17 +126,20 @@ export const verifyAdminEmail = async (req, res) => {
       return res.status(400).json({ code: 'TOKEN_EXPIRED', error: 'Verification link has expired. Please request a new one.' })
     }
 
-    await pool.query('BEGIN')
+    const client = await pool.connect()
     try {
-      await pool.query(
+      await client.query('BEGIN')
+      await client.query(
         `UPDATE cinema_admin_user SET email_verified = TRUE, email_verified_at = now() WHERE id = $1`,
         [record.admin_id]
       )
-      await pool.query(`DELETE FROM admin_verification_tokens WHERE admin_id = $1`, [record.admin_id])
-      await pool.query('COMMIT')
+      await client.query(`DELETE FROM admin_verification_tokens WHERE admin_id = $1`, [record.admin_id])
+      await client.query('COMMIT')
     } catch (err) {
-      await pool.query('ROLLBACK')
+      await client.query('ROLLBACK')
       throw err
+    } finally {
+      client.release()
     }
 
     await logSecurityEvent(record.admin_id, 'EMAIL_VERIFIED', req)
@@ -492,18 +495,21 @@ export const resetPassword = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 12)
 
-    await pool.query('BEGIN')
+    const client = await pool.connect()
     try {
-      await pool.query(
+      await client.query('BEGIN')
+      await client.query(
         `UPDATE cinema_admin_user SET password = $1, password_changed_at = now() WHERE id = $2`,
         [hashedPassword, record.admin_id]
       )
-      await pool.query(`UPDATE admin_password_reset_tokens SET used = TRUE WHERE id = $1`, [record.id])
-      await pool.query(`UPDATE admin_sessions SET is_revoked = TRUE WHERE admin_id = $1`, [record.admin_id])
-      await pool.query('COMMIT')
+      await client.query(`UPDATE admin_password_reset_tokens SET used = TRUE WHERE id = $1`, [record.id])
+      await client.query(`UPDATE admin_sessions SET is_revoked = TRUE WHERE admin_id = $1`, [record.admin_id])
+      await client.query('COMMIT')
     } catch (err) {
-      await pool.query('ROLLBACK')
+      await client.query('ROLLBACK')
       throw err
+    } finally {
+      client.release()
     }
 
     const cookieOpts = { httpOnly: true, sameSite: isProduction ? 'None' : 'Lax', secure: isProduction }
@@ -548,24 +554,27 @@ export const changePassword = async (req, res) => {
     const currentRefreshToken = req.cookies.refreshToken
     const currentTokenHash = currentRefreshToken ? hashToken(currentRefreshToken) : null
 
-    await pool.query('BEGIN')
+    const client = await pool.connect()
     try {
-      await pool.query(
+      await client.query('BEGIN')
+      await client.query(
         `UPDATE cinema_admin_user SET password = $1, password_changed_at = now() WHERE id = $2`,
         [hashedPassword, adminId]
       )
       if (currentTokenHash) {
-        await pool.query(
+        await client.query(
           `UPDATE admin_sessions SET is_revoked = TRUE WHERE admin_id = $1 AND refresh_token_hash != $2`,
           [adminId, currentTokenHash]
         )
       } else {
-        await pool.query(`UPDATE admin_sessions SET is_revoked = TRUE WHERE admin_id = $1`, [adminId])
+        await client.query(`UPDATE admin_sessions SET is_revoked = TRUE WHERE admin_id = $1`, [adminId])
       }
-      await pool.query('COMMIT')
+      await client.query('COMMIT')
     } catch (err) {
-      await pool.query('ROLLBACK')
+      await client.query('ROLLBACK')
       throw err
+    } finally {
+      client.release()
     }
 
     sendAdminPasswordChangedEmail(admin.email, admin.name).catch(() => {})
