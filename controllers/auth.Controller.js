@@ -703,7 +703,8 @@ export const getAllAdmins = async (req, res) => {
     const [adminsResult, countResult] = await Promise.all([
       pool.query(
         `SELECT
-          a.id, a.name, a.email, a.phone, a.role, a.email_verified, a.last_login_at, a.created_at,
+          a.id, a.name, a.email, a.phone, a.role,
+          a.email_verified, a.email_verified_at, a.last_login_at, a.created_at,
           h.id AS hall_id, h.name AS hall_name, h.location, h.district, h.state
         FROM cinema_admin_user a
         LEFT JOIN cinema_hall h ON h.admin_id = a.id
@@ -735,6 +736,36 @@ export const getAllAdmins = async (req, res) => {
   } catch (err) {
     logger.error('❌ getAllAdmins error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch admins' })
+  }
+}
+
+// ✅ Get Security Logs for a specific admin (Super Admin only)
+export const getAdminSecurityLogs = async (req, res) => {
+  const { id } = req.params
+  try {
+    const [adminResult, logsResult] = await Promise.all([
+      pool.query(
+        `SELECT id, name, email, role, email_verified, email_verified_at,
+                failed_login_attempts, account_locked_until, password_changed_at, last_login_at, created_at
+         FROM cinema_admin_user WHERE id = $1 AND role != 'superAdmin'`,
+        [id]
+      ),
+      pool.query(
+        `SELECT action, ip_address, user_agent, metadata, created_at
+         FROM admin_security_logs WHERE admin_id = $1
+         ORDER BY created_at DESC LIMIT 30`,
+        [id]
+      ),
+    ])
+
+    if (adminResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Admin not found.' })
+    }
+
+    res.json({ admin: adminResult.rows[0], logs: logsResult.rows })
+  } catch (err) {
+    logger.error('❌ getAdminSecurityLogs error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to fetch admin security logs.' })
   }
 }
 

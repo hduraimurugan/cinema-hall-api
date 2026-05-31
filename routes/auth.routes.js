@@ -6,6 +6,7 @@ import {
   refreshCinemaAdminToken,
   getCinemaAdminMe,
   getAllAdmins,
+  getAdminSecurityLogs,
   updateCinemaHall,
   verifyAdminEmail,
   resendVerificationEmail,
@@ -43,5 +44,6 @@ router.get('/security', verifyCinemaAdminAccessToken, getAdminSecurity)
 
 // ── Super admin routes ─────────────────────────────────────────────────────────
 router.get('/admins', verifySuperAdmin, getAllAdmins)
+router.get('/admins/:id/logs', verifySuperAdmin, getAdminSecurityLogs)
 
 export default router
