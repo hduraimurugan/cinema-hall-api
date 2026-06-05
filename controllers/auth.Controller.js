@@ -51,9 +51,9 @@ export const registerCinemaAdmin = async (req, res) => {
     return res.status(400).json({ error: 'Name, email, password, and phone are required.' })
   }
 
-  const passwordCheck = validatePassword(password)
-  if (!passwordCheck.valid) {
-    return res.status(400).json({ error: passwordCheck.message })
+  const passwordError = validatePassword(password)
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError })
   }
 
   try {
@@ -480,8 +480,8 @@ export const resetPassword = async (req, res) => {
   const { token, newPassword } = req.body
   if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password are required.' })
 
-  const passwordCheck = validatePassword(newPassword)
-  if (!passwordCheck.valid) return res.status(400).json({ error: passwordCheck.message })
+  const passwordError = validatePassword(newPassword)
+  if (passwordError) return res.status(400).json({ error: passwordError })
 
   try {
     const tokenHash = hashToken(token)
@@ -553,8 +553,8 @@ export const changePassword = async (req, res) => {
     return res.status(400).json({ error: 'Current password and new password are required.' })
   }
 
-  const passwordCheck = validatePassword(newPassword)
-  if (!passwordCheck.valid) return res.status(400).json({ error: passwordCheck.message })
+  const passwordError = validatePassword(newPassword)
+  if (passwordError) return res.status(400).json({ error: passwordError })
 
   try {
     const result = await pool.query('SELECT id, name, email, password FROM cinema_admin_user WHERE id = $1', [adminId])
