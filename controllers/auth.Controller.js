@@ -712,26 +712,29 @@ export const getAllAdmins = async (req, res) => {
           a.id, a.name, a.email, a.phone, a.role,
           a.email_verified, a.email_verified_at, a.last_login_at, a.created_at,
           a.auth_providers, a.avatar,
-          h.id AS hall_id, h.name AS hall_name, h.location, h.district, h.state
+          COALESCE(
+            (SELECT json_agg(json_build_object(
+              'id', h.id, 'name', h.name, 'location', h.location, 'district', h.district, 'state', h.state
+            )) FROM cinema_hall h WHERE h.admin_id = a.id),
+            '[]'::json
+          ) AS halls
         FROM cinema_admin_user a
-        LEFT JOIN cinema_hall h ON h.admin_id = a.id
-        WHERE a.role != 'superAdmin'
+        WHERE a.role = 'admin'
           AND ($1::text IS NULL
             OR a.name ILIKE '%' || $1 || '%'
             OR a.email ILIKE '%' || $1 || '%'
-            OR h.name ILIKE '%' || $1 || '%')
+            OR EXISTS (SELECT 1 FROM cinema_hall h WHERE h.admin_id = a.id AND h.name ILIKE '%' || $1 || '%'))
         ORDER BY a.created_at DESC
         LIMIT $2 OFFSET $3`,
         [searchParam, limit, offset]
       ),
       pool.query(
         `SELECT COUNT(*) FROM cinema_admin_user a
-        LEFT JOIN cinema_hall h ON h.admin_id = a.id
-        WHERE a.role != 'superAdmin'
+        WHERE a.role = 'admin'
           AND ($1::text IS NULL
             OR a.name ILIKE '%' || $1 || '%'
             OR a.email ILIKE '%' || $1 || '%'
-            OR h.name ILIKE '%' || $1 || '%')`,
+            OR EXISTS (SELECT 1 FROM cinema_hall h WHERE h.admin_id = a.id AND h.name ILIKE '%' || $1 || '%'))`,
         [searchParam]
       ),
     ])
@@ -752,10 +755,17 @@ export const getAdminSecurityLogs = async (req, res) => {
   try {
     const [adminResult, logsResult] = await Promise.all([
       pool.query(
-        `SELECT id, name, email, role, email_verified, email_verified_at,
-                failed_login_attempts, account_locked_until, password_changed_at, last_login_at, created_at,
-                auth_providers, avatar
-         FROM cinema_admin_user WHERE id = $1 AND role != 'superAdmin'`,
+        `SELECT a.id, a.name, a.email, a.role, a.email_verified, a.email_verified_at,
+                a.failed_login_attempts, a.account_locked_until, a.password_changed_at, a.last_login_at, a.created_at,
+                a.auth_providers, a.avatar,
+                COALESCE(
+                  (SELECT json_agg(json_build_object(
+                    'id', h.id, 'name', h.name, 'location', h.location, 'district', h.district, 'state', h.state
+                  )) FROM cinema_hall h WHERE h.admin_id = a.id),
+                  '[]'::json
+                ) AS halls
+         FROM cinema_admin_user a
+         WHERE a.id = $1 AND a.role != 'superAdmin'`,
         [id]
       ),
       pool.query(
