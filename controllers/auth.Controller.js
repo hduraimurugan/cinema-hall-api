@@ -5,6 +5,8 @@ import { generateTokenAndSetCookie } from '../utils/generateTokenAndSetCookie.js
 import { generateVerificationToken } from '../utils/generateVerificationToken.js'
 import { hashToken } from '../utils/hashToken.js'
 import { validatePassword } from '../utils/passwordPolicy.js'
+import { verifyGoogleToken, exchangeGithubCode, getGithubUser } from '../utils/oauthProviders.js'
+import { checkOAuthRateLimit } from '../utils/oauthRateLimit.js'
 import {
   sendAdminVerificationEmail,
   sendAdminPasswordResetEmail,
@@ -375,6 +377,7 @@ export const getCinemaAdminMe = async (req, res) => {
       `SELECT
         a.id AS admin_id, a.name AS admin_name, a.email, a.phone, a.role,
         a.email_verified, a.email_verified_at, a.password_changed_at, a.last_login_at,
+        a.auth_providers, a.avatar, a.password IS NOT NULL AS has_password,
         a.created_at AS admin_created_at,
         h.id AS hall_id, h.name AS hall_name, h.location AS hall_location,
         h.district AS hall_district, h.state AS hall_state,
@@ -402,6 +405,9 @@ export const getCinemaAdminMe = async (req, res) => {
         email_verified_at: row.email_verified_at,
         password_changed_at: row.password_changed_at,
         last_login_at: row.last_login_at,
+        auth_providers: row.auth_providers || ['local'],
+        avatar: row.avatar,
+        has_password: row.has_password,
         created_at: row.admin_created_at,
       },
       hall: row.hall_id
@@ -803,5 +809,450 @@ export const updateCinemaHall = async (req, res) => {
   } catch (err) {
     logger.error('❌ updateCinemaHall error:', { message: err.message })
     res.status(500).json({ error: 'Failed to update cinema hall.' })
+  }
+}
+
+// ✅ Google OAuth Login (Admin)
+export const googleLoginAdmin = async (req, res) => {
+  const { idToken } = req.body
+  if (!idToken) return res.status(400).json({ error: 'Google ID token is required.' })
+
+  // Rate limiting
+  const rateCheck = checkOAuthRateLimit(req.ip, 'admin-google-login')
+  if (!rateCheck.allowed) {
+    return res.status(429).json({
+      error: 'Too many login attempts. Please try again later.',
+      retryAfterMs: rateCheck.retryAfterMs,
+    })
+  }
+
+  try {
+    const googleUser = await verifyGoogleToken(idToken)
+
+    // Look up admin by email
+    const result = await pool.query(
+      `SELECT a.id AS admin_id, a.name AS admin_name, a.email, a.phone, a.role,
+              a.email_verified, a.auth_providers, a.provider_ids, a.avatar,
+              a.account_locked_until,
+              h.id AS hall_id, h.name AS hall_name, h.location AS hall_location,
+              h.district AS hall_district, h.state AS hall_state,
+              h.latitude AS hall_latitude, h.longitude AS hall_longitude,
+              h.created_at AS hall_created_at
+       FROM cinema_admin_user a
+       LEFT JOIN cinema_hall h ON h.admin_id = a.id
+       WHERE a.email = $1`,
+      [googleUser.email]
+    )
+
+    let admin
+    let isNewAccount = false
+
+    if (result.rows.length === 0) {
+      // Case A — New admin account via Google
+      const insertResult = await pool.query(
+        `INSERT INTO cinema_admin_user (name, email, password, phone, email_verified, email_verified_at, auth_providers, provider_ids, avatar)
+         VALUES ($1, $2, NULL, NULL, TRUE, now(), ARRAY['google'], $3, $4)
+         RETURNING id, name, email, phone, role, email_verified, auth_providers, avatar, created_at`,
+        [googleUser.name, googleUser.email, JSON.stringify({ google: googleUser.googleId }), googleUser.picture]
+      )
+      admin = insertResult.rows[0]
+      admin.admin_id = admin.id
+      admin.admin_name = admin.name
+      isNewAccount = true
+      await logSecurityEvent(admin.id, 'REGISTER_GOOGLE', req)
+    } else {
+      admin = result.rows[0]
+
+      // Check lockout
+      if (admin.account_locked_until && new Date(admin.account_locked_until) > new Date()) {
+        const remainingMs = new Date(admin.account_locked_until).getTime() - Date.now()
+        const remainingMins = Math.ceil(remainingMs / 60000)
+        return res.status(423).json({
+          code: 'ACCOUNT_LOCKED',
+          error: `Account is temporarily locked. Try again in ${remainingMins} minute${remainingMins === 1 ? '' : 's'}.`,
+          lockedUntil: admin.account_locked_until,
+        })
+      }
+
+      // Case B — Existing local account, link Google
+      if (!admin.auth_providers.includes('google')) {
+        const updatedProviderIds = { ...(admin.provider_ids || {}), google: googleUser.googleId }
+        const updatedProviders = [...new Set([...(admin.auth_providers || []), 'google'])]
+        await pool.query(
+          `UPDATE cinema_admin_user
+           SET auth_providers = $1, provider_ids = $2, avatar = COALESCE(avatar, $3),
+               email_verified = TRUE, email_verified_at = COALESCE(email_verified_at, now())
+           WHERE id = $4`,
+          [updatedProviders, JSON.stringify(updatedProviderIds), googleUser.picture, admin.admin_id]
+        )
+        await logSecurityEvent(admin.admin_id, 'LINK_GOOGLE', req)
+      } else {
+        // Case C — Existing Google account, update avatar
+        await pool.query(
+          `UPDATE cinema_admin_user SET avatar = $1 WHERE id = $2`,
+          [googleUser.picture, admin.admin_id]
+        )
+      }
+    }
+
+    const adminId = admin.admin_id || admin.id
+    // Update last_login_at and reset lockout
+    await pool.query(
+      `UPDATE cinema_admin_user SET last_login_at = now(), failed_login_attempts = 0, account_locked_until = NULL WHERE id = $1`,
+      [adminId]
+    )
+
+    const tokenPayload = { id: adminId, name: admin.admin_name || admin.name, email: admin.email || googleUser.email, role: admin.role || 'admin' }
+    const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
+    const { accessToken, refreshToken } = await generateTokenAndSetCookie(res, tokenPayload, meta)
+
+    await logSecurityEvent(adminId, 'LOGIN_GOOGLE', req)
+
+    // Re-fetch full admin data for response
+    const fullResult = await pool.query(
+      `SELECT a.id AS admin_id, a.name AS admin_name, a.email, a.phone, a.role,
+              a.email_verified, a.auth_providers, a.avatar, a.created_at AS admin_created_at,
+              h.id AS hall_id, h.name AS hall_name, h.location AS hall_location,
+              h.district AS hall_district, h.state AS hall_state,
+              h.latitude AS hall_latitude, h.longitude AS hall_longitude,
+              h.created_at AS hall_created_at
+       FROM cinema_admin_user a
+       LEFT JOIN cinema_hall h ON h.admin_id = a.id
+       WHERE a.id = $1`,
+      [adminId]
+    )
+    const row = fullResult.rows[0]
+
+    res.json({
+      message: isNewAccount ? 'Account created successfully' : 'Login successful',
+      accessToken,
+      refreshToken,
+      admin: {
+        id: row.admin_id,
+        name: row.admin_name,
+        email: row.email,
+        phone: row.phone,
+        role: row.role,
+        email_verified: row.email_verified,
+        auth_providers: row.auth_providers,
+        avatar: row.avatar,
+        created_at: row.admin_created_at,
+      },
+      hall: row.hall_id
+        ? {
+            id: row.hall_id,
+            name: row.hall_name,
+            location: row.hall_location,
+            district: row.hall_district,
+            state: row.hall_state,
+            latitude: row.hall_latitude ? parseFloat(row.hall_latitude) : null,
+            longitude: row.hall_longitude ? parseFloat(row.hall_longitude) : null,
+            created_at: row.hall_created_at,
+          }
+        : null,
+    })
+  } catch (err) {
+    logger.error('❌ Google login error:', { message: err.message })
+    if (err.message.includes('Token used too late') || err.message.includes('Invalid token')) {
+      return res.status(401).json({ error: 'Invalid or expired Google token. Please try again.' })
+    }
+    res.status(500).json({ error: 'Google login failed. Try again later.' })
+  }
+}
+
+// ✅ GitHub OAuth Login (Admin)
+export const githubLoginAdmin = async (req, res) => {
+  const { code } = req.body
+  if (!code) return res.status(400).json({ error: 'GitHub authorization code is required.' })
+
+  // Rate limiting
+  const rateCheck = checkOAuthRateLimit(req.ip, 'admin-github-login')
+  if (!rateCheck.allowed) {
+    return res.status(429).json({
+      error: 'Too many login attempts. Please try again later.',
+      retryAfterMs: rateCheck.retryAfterMs,
+    })
+  }
+
+  try {
+    const accessTokenGH = await exchangeGithubCode(code)
+    const githubUser = await getGithubUser(accessTokenGH)
+
+    // Look up admin by email
+    const result = await pool.query(
+      `SELECT a.id AS admin_id, a.name AS admin_name, a.email, a.phone, a.role,
+              a.email_verified, a.auth_providers, a.provider_ids, a.avatar,
+              a.account_locked_until,
+              h.id AS hall_id, h.name AS hall_name, h.location AS hall_location,
+              h.district AS hall_district, h.state AS hall_state,
+              h.latitude AS hall_latitude, h.longitude AS hall_longitude,
+              h.created_at AS hall_created_at
+       FROM cinema_admin_user a
+       LEFT JOIN cinema_hall h ON h.admin_id = a.id
+       WHERE a.email = $1`,
+      [githubUser.email]
+    )
+
+    let admin
+    let isNewAccount = false
+
+    if (result.rows.length === 0) {
+      // New admin account via GitHub
+      const insertResult = await pool.query(
+        `INSERT INTO cinema_admin_user (name, email, password, phone, email_verified, email_verified_at, auth_providers, provider_ids, avatar)
+         VALUES ($1, $2, NULL, NULL, $3, ${githubUser.emailVerified ? 'now()' : 'NULL'}, ARRAY['github'], $4, $5)
+         RETURNING id, name, email, phone, role, email_verified, auth_providers, avatar, created_at`,
+        [githubUser.name, githubUser.email, githubUser.emailVerified, JSON.stringify({ github: githubUser.githubId }), githubUser.picture]
+      )
+      admin = insertResult.rows[0]
+      admin.admin_id = admin.id
+      admin.admin_name = admin.name
+      isNewAccount = true
+      await logSecurityEvent(admin.id, 'REGISTER_GITHUB', req)
+    } else {
+      admin = result.rows[0]
+
+      // Check lockout
+      if (admin.account_locked_until && new Date(admin.account_locked_until) > new Date()) {
+        const remainingMs = new Date(admin.account_locked_until).getTime() - Date.now()
+        const remainingMins = Math.ceil(remainingMs / 60000)
+        return res.status(423).json({
+          code: 'ACCOUNT_LOCKED',
+          error: `Account is temporarily locked. Try again in ${remainingMins} minute${remainingMins === 1 ? '' : 's'}.`,
+          lockedUntil: admin.account_locked_until,
+        })
+      }
+
+      // Link GitHub if not already linked
+      if (!admin.auth_providers.includes('github')) {
+        const updatedProviderIds = { ...(admin.provider_ids || {}), github: githubUser.githubId }
+        const updatedProviders = [...new Set([...(admin.auth_providers || []), 'github'])]
+        await pool.query(
+          `UPDATE cinema_admin_user
+           SET auth_providers = $1, provider_ids = $2, avatar = COALESCE(avatar, $3),
+               email_verified = TRUE, email_verified_at = COALESCE(email_verified_at, now())
+           WHERE id = $4`,
+          [updatedProviders, JSON.stringify(updatedProviderIds), githubUser.picture, admin.admin_id]
+        )
+        await logSecurityEvent(admin.admin_id, 'LINK_GITHUB', req)
+      } else {
+        await pool.query(
+          `UPDATE cinema_admin_user SET avatar = $1 WHERE id = $2`,
+          [githubUser.picture, admin.admin_id]
+        )
+      }
+    }
+
+    const adminId = admin.admin_id || admin.id
+    await pool.query(
+      `UPDATE cinema_admin_user SET last_login_at = now(), failed_login_attempts = 0, account_locked_until = NULL WHERE id = $1`,
+      [adminId]
+    )
+
+    const tokenPayload = { id: adminId, name: admin.admin_name || admin.name, email: admin.email || githubUser.email, role: admin.role || 'admin' }
+    const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
+    const { accessToken, refreshToken } = await generateTokenAndSetCookie(res, tokenPayload, meta)
+
+    await logSecurityEvent(adminId, 'LOGIN_GITHUB', req)
+
+    const fullResult = await pool.query(
+      `SELECT a.id AS admin_id, a.name AS admin_name, a.email, a.phone, a.role,
+              a.email_verified, a.auth_providers, a.avatar, a.created_at AS admin_created_at,
+              h.id AS hall_id, h.name AS hall_name, h.location AS hall_location,
+              h.district AS hall_district, h.state AS hall_state,
+              h.latitude AS hall_latitude, h.longitude AS hall_longitude,
+              h.created_at AS hall_created_at
+       FROM cinema_admin_user a
+       LEFT JOIN cinema_hall h ON h.admin_id = a.id
+       WHERE a.id = $1`,
+      [adminId]
+    )
+    const row = fullResult.rows[0]
+
+    res.json({
+      message: isNewAccount ? 'Account created successfully' : 'Login successful',
+      accessToken,
+      refreshToken,
+      admin: {
+        id: row.admin_id,
+        name: row.admin_name,
+        email: row.email,
+        phone: row.phone,
+        role: row.role,
+        email_verified: row.email_verified,
+        auth_providers: row.auth_providers,
+        avatar: row.avatar,
+        created_at: row.admin_created_at,
+      },
+      hall: row.hall_id
+        ? {
+            id: row.hall_id,
+            name: row.hall_name,
+            location: row.hall_location,
+            district: row.hall_district,
+            state: row.hall_state,
+            latitude: row.hall_latitude ? parseFloat(row.hall_latitude) : null,
+            longitude: row.hall_longitude ? parseFloat(row.hall_longitude) : null,
+            created_at: row.hall_created_at,
+          }
+        : null,
+    })
+  } catch (err) {
+    logger.error('❌ GitHub login error:', { message: err.message })
+    if (err.message.includes('No verified email')) {
+      return res.status(400).json({ error: err.message })
+    }
+    if (err.message.includes('token exchange failed')) {
+      return res.status(401).json({ error: 'Invalid or expired GitHub authorization code. Please try again.' })
+    }
+    res.status(500).json({ error: 'GitHub login failed. Try again later.' })
+  }
+}
+
+// ✅ Link OAuth Provider (Admin - Authenticated)
+export const linkProviderAdmin = async (req, res) => {
+  const adminId = req.admin.id
+  const { provider, idToken, code } = req.body
+
+  if (!provider || !['google', 'github'].includes(provider)) {
+    return res.status(400).json({ error: 'Invalid provider. Supported: google, github.' })
+  }
+
+  try {
+    const adminResult = await pool.query(
+      'SELECT id, email, auth_providers, provider_ids FROM cinema_admin_user WHERE id = $1',
+      [adminId]
+    )
+    if (adminResult.rows.length === 0) return res.status(404).json({ error: 'Admin not found.' })
+
+    const admin = adminResult.rows[0]
+
+    if (admin.auth_providers.includes(provider)) {
+      return res.status(400).json({ error: `${provider} is already linked to your account.` })
+    }
+
+    let providerEmail, providerId, avatar
+
+    if (provider === 'google') {
+      if (!idToken) return res.status(400).json({ error: 'Google ID token is required.' })
+      const googleUser = await verifyGoogleToken(idToken)
+      if (googleUser.email !== admin.email) {
+        return res.status(400).json({ error: 'Google email does not match your account email.' })
+      }
+      providerEmail = googleUser.email
+      providerId = googleUser.googleId
+      avatar = googleUser.picture
+    } else if (provider === 'github') {
+      if (!code) return res.status(400).json({ error: 'GitHub authorization code is required.' })
+      const accessTokenGH = await exchangeGithubCode(code)
+      const githubUser = await getGithubUser(accessTokenGH)
+      if (githubUser.email !== admin.email) {
+        return res.status(400).json({ error: 'GitHub email does not match your account email.' })
+      }
+      providerEmail = githubUser.email
+      providerId = githubUser.githubId
+      avatar = githubUser.picture
+    }
+
+    const updatedProviderIds = { ...(admin.provider_ids || {}), [provider]: providerId }
+    const updatedProviders = [...new Set([...(admin.auth_providers || []), provider])]
+
+    await pool.query(
+      `UPDATE cinema_admin_user SET auth_providers = $1, provider_ids = $2, avatar = COALESCE(avatar, $3) WHERE id = $4`,
+      [updatedProviders, JSON.stringify(updatedProviderIds), avatar, adminId]
+    )
+
+    await logSecurityEvent(adminId, `LINK_${provider.toUpperCase()}`, req)
+    res.json({ message: `${provider} account linked successfully.`, auth_providers: updatedProviders })
+  } catch (err) {
+    logger.error('❌ linkProvider error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to link provider. Try again later.' })
+  }
+}
+
+// ✅ Unlink OAuth Provider (Admin - Authenticated)
+export const unlinkProviderAdmin = async (req, res) => {
+  const adminId = req.admin.id
+  const { provider } = req.body
+
+  if (!provider || !['google', 'github'].includes(provider)) {
+    return res.status(400).json({ error: 'Invalid provider. Supported: google, github.' })
+  }
+
+  try {
+    const adminResult = await pool.query(
+      'SELECT id, password, auth_providers, provider_ids FROM cinema_admin_user WHERE id = $1',
+      [adminId]
+    )
+    if (adminResult.rows.length === 0) return res.status(404).json({ error: 'Admin not found.' })
+
+    const admin = adminResult.rows[0]
+
+    if (!admin.auth_providers.includes(provider)) {
+      return res.status(400).json({ error: `${provider} is not linked to your account.` })
+    }
+
+    // Prevent removing last auth method
+    const remainingProviders = admin.auth_providers.filter(p => p !== provider)
+    const hasPassword = !!admin.password
+    if (remainingProviders.length === 0 && !hasPassword) {
+      return res.status(400).json({ error: 'Cannot remove your only login method. Add a password or another provider first.' })
+    }
+    if (remainingProviders.filter(p => p !== 'local').length === 0 && !hasPassword) {
+      return res.status(400).json({ error: 'Cannot remove your only login method. Set a password first.' })
+    }
+
+    const updatedProviderIds = { ...(admin.provider_ids || {}) }
+    delete updatedProviderIds[provider]
+
+    await pool.query(
+      `UPDATE cinema_admin_user SET auth_providers = $1, provider_ids = $2 WHERE id = $3`,
+      [remainingProviders, JSON.stringify(updatedProviderIds), adminId]
+    )
+
+    await logSecurityEvent(adminId, `UNLINK_${provider.toUpperCase()}`, req)
+    res.json({ message: `${provider} account unlinked successfully.`, auth_providers: remainingProviders })
+  } catch (err) {
+    logger.error('❌ unlinkProvider error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to unlink provider. Try again later.' })
+  }
+}
+
+// ✅ Set Password (for OAuth-only admin accounts)
+export const setPasswordAdmin = async (req, res) => {
+  const adminId = req.admin.id
+  const { newPassword } = req.body
+
+  if (!newPassword) return res.status(400).json({ error: 'New password is required.' })
+
+  const passwordError = validatePassword(newPassword)
+  if (passwordError) return res.status(400).json({ error: passwordError })
+
+  try {
+    const adminResult = await pool.query(
+      'SELECT id, password, auth_providers FROM cinema_admin_user WHERE id = $1',
+      [adminId]
+    )
+    if (adminResult.rows.length === 0) return res.status(404).json({ error: 'Admin not found.' })
+
+    const admin = adminResult.rows[0]
+
+    if (admin.password) {
+      return res.status(400).json({ error: 'You already have a password set. Use change password instead.' })
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12)
+    const updatedProviders = [...new Set([...(admin.auth_providers || []), 'local'])]
+
+    await pool.query(
+      `UPDATE cinema_admin_user SET password = $1, auth_providers = $2, password_changed_at = now() WHERE id = $3`,
+      [hashedPassword, updatedProviders, adminId]
+    )
+
+    await logSecurityEvent(adminId, 'SET_PASSWORD', req)
+    res.json({ message: 'Password set successfully. You can now login with email and password.', auth_providers: updatedProviders })
+  } catch (err) {
+    logger.error('❌ setPassword error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to set password. Try again later.' })
   }
 }

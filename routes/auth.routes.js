@@ -15,6 +15,11 @@ import {
   changePassword,
   logoutAllDevices,
   getAdminSecurity,
+  googleLoginAdmin,
+  githubLoginAdmin,
+  linkProviderAdmin,
+  unlinkProviderAdmin,
+  setPasswordAdmin,
 } from '../controllers/auth.Controller.js'
 
 import {
@@ -34,6 +39,10 @@ router.post('/resend-verification', resendVerificationEmail)
 router.post('/forgot-password', forgotPassword)
 router.post('/reset-password', resetPassword)
 
+// ── OAuth routes ───────────────────────────────────────────────────────────────
+router.post('/google-login', googleLoginAdmin)
+router.post('/github-login', githubLoginAdmin)
+
 // ── Protected routes ───────────────────────────────────────────────────────────
 router.get('/me', verifyCinemaAdminAccessToken, getCinemaAdminMe)
 router.post('/refresh', verifyCinemaAdminRefreshToken, refreshCinemaAdminToken)
@@ -41,6 +50,9 @@ router.patch('/hall', verifyCinemaAdminAccessToken, updateCinemaHall)
 router.post('/change-password', verifyCinemaAdminAccessToken, changePassword)
 router.post('/logout-all', verifyCinemaAdminAccessToken, logoutAllDevices)
 router.get('/security', verifyCinemaAdminAccessToken, getAdminSecurity)
+router.post('/link-provider', verifyCinemaAdminAccessToken, linkProviderAdmin)
+router.post('/unlink-provider', verifyCinemaAdminAccessToken, unlinkProviderAdmin)
+router.post('/set-password', verifyCinemaAdminAccessToken, setPasswordAdmin)
 
 // ── Super admin routes ─────────────────────────────────────────────────────────
 router.get('/admins', verifySuperAdmin, getAllAdmins)

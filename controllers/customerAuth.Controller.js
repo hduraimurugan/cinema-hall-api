@@ -5,6 +5,8 @@ import crypto from 'crypto'
 import { generateCustomerTokenAndSetCookie } from '../utils/generateTokenAndSetCookie.js'
 import { hashToken } from '../utils/hashToken.js'
 import { validatePassword } from '../utils/passwordPolicy.js'
+import { verifyGoogleToken } from '../utils/oauthProviders.js'
+import { checkOAuthRateLimit } from '../utils/oauthRateLimit.js'
 import {
   sendCustomerOtpEmail,
   sendCustomerAccountLockedEmail,
@@ -417,14 +419,22 @@ export const getCustomerMe = async (req, res) => {
     const customerId = req.customer.id
 
     const result = await pool.query(
-      `SELECT id, name, email, phone, district, state, is_verified, created_at, updated_at
+      `SELECT id, name, email, phone, district, state, is_verified,
+              auth_providers, avatar, password IS NOT NULL AS has_password,
+              created_at, updated_at
        FROM customers WHERE id = $1`,
       [customerId]
     )
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Customer not found' })
 
-    res.json({ customer: result.rows[0] })
+    const customer = result.rows[0]
+    res.json({
+      customer: {
+        ...customer,
+        auth_providers: customer.auth_providers || ['local'],
+      },
+    })
   } catch (err) {
     logger.error('❌ getCustomerMe error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch customer info' })
@@ -464,4 +474,234 @@ async function _generateAndSendOtp(email, name, type) {
 
   await sendCustomerOtpEmail(email, name, otp, type)
   return otpHash
+}
+
+// ✅ Google OAuth Login (Customer)
+export const googleLoginCustomer = async (req, res) => {
+  const { idToken } = req.body
+  if (!idToken) return res.status(400).json({ error: 'Google ID token is required.' })
+
+  // Rate limiting
+  const rateCheck = checkOAuthRateLimit(req.ip, 'customer-google-login')
+  if (!rateCheck.allowed) {
+    return res.status(429).json({
+      error: 'Too many login attempts. Please try again later.',
+      retryAfterMs: rateCheck.retryAfterMs,
+    })
+  }
+
+  try {
+    const googleUser = await verifyGoogleToken(idToken)
+
+    // Look up customer by email
+    const result = await pool.query(
+      `SELECT * FROM customers WHERE email = $1`,
+      [googleUser.email]
+    )
+
+    let customer
+    let isNewAccount = false
+
+    if (result.rows.length === 0) {
+      // Case A — New customer account via Google
+      const insertResult = await pool.query(
+        `INSERT INTO customers (name, email, password, phone, is_verified, auth_providers, provider_ids, avatar)
+         VALUES ($1, $2, NULL, NULL, TRUE, ARRAY['google'], $3, $4)
+         RETURNING id, name, email, phone, is_verified, auth_providers, avatar, created_at`,
+        [googleUser.name, googleUser.email, JSON.stringify({ google: googleUser.googleId }), googleUser.picture]
+      )
+      customer = insertResult.rows[0]
+      isNewAccount = true
+    } else {
+      customer = result.rows[0]
+
+      // Check lockout
+      if (customer.account_locked_until && new Date(customer.account_locked_until) > new Date()) {
+        return res.status(423).json({
+          code: 'ACCOUNT_LOCKED',
+          error: 'Account is temporarily locked due to multiple failed login attempts.',
+          lockedUntil: customer.account_locked_until,
+        })
+      }
+
+      // Case B — Existing local account, link Google
+      if (!customer.auth_providers || !customer.auth_providers.includes('google')) {
+        const updatedProviderIds = { ...(customer.provider_ids || {}), google: googleUser.googleId }
+        const updatedProviders = [...new Set([...(customer.auth_providers || ['local']), 'google'])]
+        await pool.query(
+          `UPDATE customers
+           SET auth_providers = $1, provider_ids = $2, avatar = COALESCE(avatar, $3),
+               is_verified = TRUE
+           WHERE id = $4`,
+          [updatedProviders, JSON.stringify(updatedProviderIds), googleUser.picture, customer.id]
+        )
+        customer.auth_providers = updatedProviders
+      } else {
+        // Case C — Existing Google account, update avatar
+        await pool.query(
+          `UPDATE customers SET avatar = $1 WHERE id = $2`,
+          [googleUser.picture, customer.id]
+        )
+      }
+    }
+
+    // Reset lockout and update last_login
+    await pool.query(
+      `UPDATE customers SET last_login_at = now(), failed_login_attempts = 0, account_locked_until = NULL WHERE id = $1`,
+      [customer.id]
+    )
+
+    const tokenPayload = { id: customer.id, name: customer.name || googleUser.name, email: customer.email, role: 'customer' }
+    const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
+    await generateCustomerTokenAndSetCookie(res, tokenPayload, meta)
+
+    res.json({
+      message: isNewAccount ? 'Account created successfully' : 'Login successful',
+      customer: {
+        id: customer.id,
+        name: customer.name || googleUser.name,
+        email: customer.email,
+        phone: customer.phone,
+        is_verified: true,
+        auth_providers: customer.auth_providers || ['google'],
+        avatar: customer.avatar || googleUser.picture,
+        created_at: customer.created_at,
+      },
+    })
+  } catch (err) {
+    logger.error('❌ Customer Google login error:', { message: err.message })
+    if (err.message.includes('Token used too late') || err.message.includes('Invalid token')) {
+      return res.status(401).json({ error: 'Invalid or expired Google token. Please try again.' })
+    }
+    res.status(500).json({ error: 'Google login failed. Try again later.' })
+  }
+}
+
+// ✅ Link Google Provider (Customer - Authenticated)
+export const linkProviderCustomer = async (req, res) => {
+  const customerId = req.customer.id
+  const { provider, idToken } = req.body
+
+  if (!provider || provider !== 'google') {
+    return res.status(400).json({ error: 'Invalid provider. Supported: google.' })
+  }
+
+  if (!idToken) return res.status(400).json({ error: 'Google ID token is required.' })
+
+  try {
+    const customerResult = await pool.query(
+      'SELECT id, email, auth_providers, provider_ids FROM customers WHERE id = $1',
+      [customerId]
+    )
+    if (customerResult.rows.length === 0) return res.status(404).json({ error: 'Customer not found.' })
+
+    const customer = customerResult.rows[0]
+
+    if (customer.auth_providers && customer.auth_providers.includes('google')) {
+      return res.status(400).json({ error: 'Google is already linked to your account.' })
+    }
+
+    const googleUser = await verifyGoogleToken(idToken)
+    if (googleUser.email !== customer.email) {
+      return res.status(400).json({ error: 'Google email does not match your account email.' })
+    }
+
+    const updatedProviderIds = { ...(customer.provider_ids || {}), google: googleUser.googleId }
+    const updatedProviders = [...new Set([...(customer.auth_providers || ['local']), 'google'])]
+
+    await pool.query(
+      `UPDATE customers SET auth_providers = $1, provider_ids = $2, avatar = COALESCE(avatar, $3) WHERE id = $4`,
+      [updatedProviders, JSON.stringify(updatedProviderIds), googleUser.picture, customerId]
+    )
+
+    res.json({ message: 'Google account linked successfully.', auth_providers: updatedProviders })
+  } catch (err) {
+    logger.error('❌ linkProvider customer error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to link provider. Try again later.' })
+  }
+}
+
+// ✅ Unlink Google Provider (Customer - Authenticated)
+export const unlinkProviderCustomer = async (req, res) => {
+  const customerId = req.customer.id
+  const { provider } = req.body
+
+  if (!provider || provider !== 'google') {
+    return res.status(400).json({ error: 'Invalid provider. Supported: google.' })
+  }
+
+  try {
+    const customerResult = await pool.query(
+      'SELECT id, password, auth_providers, provider_ids FROM customers WHERE id = $1',
+      [customerId]
+    )
+    if (customerResult.rows.length === 0) return res.status(404).json({ error: 'Customer not found.' })
+
+    const customer = customerResult.rows[0]
+
+    if (!customer.auth_providers || !customer.auth_providers.includes('google')) {
+      return res.status(400).json({ error: 'Google is not linked to your account.' })
+    }
+
+    // Prevent removing last auth method
+    const remainingProviders = customer.auth_providers.filter(p => p !== 'google')
+    const hasPassword = !!customer.password
+    if (remainingProviders.length === 0 && !hasPassword) {
+      return res.status(400).json({ error: 'Cannot remove your only login method. Set a password first.' })
+    }
+    if (remainingProviders.filter(p => p !== 'local').length === 0 && !hasPassword) {
+      return res.status(400).json({ error: 'Cannot remove your only login method. Set a password first.' })
+    }
+
+    const updatedProviderIds = { ...(customer.provider_ids || {}) }
+    delete updatedProviderIds.google
+
+    await pool.query(
+      `UPDATE customers SET auth_providers = $1, provider_ids = $2 WHERE id = $3`,
+      [remainingProviders, JSON.stringify(updatedProviderIds), customerId]
+    )
+
+    res.json({ message: 'Google account unlinked successfully.', auth_providers: remainingProviders })
+  } catch (err) {
+    logger.error('❌ unlinkProvider customer error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to unlink provider. Try again later.' })
+  }
+}
+
+// ✅ Set Password (for OAuth-only customer accounts)
+export const setPasswordCustomer = async (req, res) => {
+  const customerId = req.customer.id
+  const { newPassword } = req.body
+
+  if (!newPassword) return res.status(400).json({ error: 'New password is required.' })
+
+  const policyError = validatePassword(newPassword)
+  if (policyError) return res.status(400).json({ error: policyError })
+
+  try {
+    const customerResult = await pool.query(
+      'SELECT id, password, auth_providers FROM customers WHERE id = $1',
+      [customerId]
+    )
+    if (customerResult.rows.length === 0) return res.status(404).json({ error: 'Customer not found.' })
+
+    const customer = customerResult.rows[0]
+
+    if (customer.password) {
+      return res.status(400).json({ error: 'You already have a password set. Use change password instead.' })
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12)
+    const updatedProviders = [...new Set([...(customer.auth_providers || []), 'local'])]
+
+    await pool.query(
+      `UPDATE customers SET password = $1, auth_providers = $2, password_changed_at = now() WHERE id = $3`,
+      [hashedPassword, updatedProviders, customerId]
+    )
+
+    res.json({ message: 'Password set successfully. You can now login with email and password.', auth_providers: updatedProviders })
+  } catch (err) {
+    logger.error('❌ setPassword customer error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to set password. Try again later.' })
+  }
 }
