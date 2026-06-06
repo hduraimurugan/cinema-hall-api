@@ -1,6 +1,7 @@
 import pool from '../db.js'
 import logger from '../utils/logger.js'
 
+
 // GET /api/customers — Super Admin only
 export const getAllCustomers = async (req, res) => {
   const { search, page = 1, limit: limitParam = 10 } = req.query
@@ -13,7 +14,7 @@ export const getAllCustomers = async (req, res) => {
       pool.query(
         `SELECT
           c.id, c.name, c.email, c.phone, c.district, c.state,
-          c.is_verified, c.created_at,
+          c.is_verified, c.created_at, c.avatar, c.auth_providers,
           (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.payment_status = 'completed')::int AS booking_count
         FROM customers c
         WHERE ($1::text IS NULL
@@ -51,5 +52,48 @@ export const getAllCustomers = async (req, res) => {
   } catch (err) {
     logger.error('❌ getAllCustomers error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch customers' })
+  }
+}
+
+export const getCustomerDetails = async (req, res) => {
+  const { id } = req.params
+
+  try {
+    const [customerResult, bookingsResult, sessionsResult] = await Promise.all([
+      pool.query(
+        `SELECT id, name, email, phone, district, state, is_verified,
+                failed_login_attempts, account_locked_until, last_login_at,
+                password_changed_at, created_at, updated_at,
+                auth_providers, avatar,
+                (password IS NOT NULL) AS has_password
+         FROM customers WHERE id = $1`,
+        [id]
+      ),
+      pool.query(
+        `SELECT id, booking_status, payment_status, total_amount, created_at
+         FROM bookings WHERE customer_id = $1
+         ORDER BY created_at DESC LIMIT 10`,
+        [id]
+      ),
+      pool.query(
+        `SELECT id, ip_address, user_agent, is_revoked, last_used_at, created_at
+         FROM customer_sessions WHERE customer_id = $1 AND is_revoked = false
+         ORDER BY last_used_at DESC LIMIT 10`,
+        [id]
+      ),
+    ])
+
+    if (customerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Customer not found.' })
+    }
+
+    res.json({
+      customer: customerResult.rows[0],
+      recentBookings: bookingsResult.rows,
+      activeSessions: sessionsResult.rows,
+    })
+  } catch (err) {
+    logger.error('❌ getCustomerDetails error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to fetch customer details.' })
   }
 }
