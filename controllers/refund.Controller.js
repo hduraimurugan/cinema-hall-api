@@ -57,7 +57,7 @@ export const getRefunds = async (req, res) => {
            ARRAY(
              SELECT (seat_data->>'row') || (seat_data->>'column')
              FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
-             WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(b.seats))
+             WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(to_jsonb(b.seats)))
            ) AS seat_labels
          FROM refunds r
          JOIN bookings b ON b.id = r.booking_id
