@@ -4,7 +4,7 @@ import { query } from './db.js'
 export async function createAdmin(overrides = {}) {
   const defaults = {
     name: 'Test Admin',
-    email: `admin_${Date.now()}@test.com`,
+    email: `admin_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@test.com`,
     password: await bcrypt.hash('TestPass123!', 12),
     role: 'admin',
     is_verified: true,
@@ -51,7 +51,7 @@ export async function createScreen(hallId, overrides = {}) {
   const data = { ...defaults, ...overrides }
 
   const result = await query(
-    `INSERT INTO screens (hall_id, name, capacity, layout)
+    `INSERT INTO screens (cinema_hall_id, name, capacity, layout)
      VALUES ($1, $2, $3, $4::jsonb)
      RETURNING *`,
     [hallId, data.name, data.capacity, data.layout]
@@ -62,8 +62,8 @@ export async function createScreen(hallId, overrides = {}) {
 export async function createMovie(overrides = {}) {
   const defaults = {
     title: 'Test Movie',
-    language: 'English',
-    genre: JSON.stringify(['Action']),
+    language: '{English}',
+    genre: '{Action}',
     duration: 120,
     poster_url: 'https://example.com/poster.jpg',
     rating: '7.5',
@@ -72,7 +72,7 @@ export async function createMovie(overrides = {}) {
 
   const result = await query(
     `INSERT INTO movies (title, language, genre, duration, poster_url, rating)
-     VALUES ($1, $2, $3::jsonb, $4, $5, $6)
+     VALUES ($1, $2::text[], $3::text[], $4, $5, $6)
      RETURNING *`,
     [data.title, data.language, data.genre, data.duration, data.poster_url, data.rating]
   )
@@ -80,18 +80,23 @@ export async function createMovie(overrides = {}) {
 }
 
 export async function createShow(screenId, movieId, overrides = {}) {
+  const now = new Date(Date.now() + 86400000)
+  const dateStr = now.toISOString().split('T')[0]
   const defaults = {
-    show_time: new Date(Date.now() + 86400000).toISOString(),
+    show_date: dateStr,
+    start_time: '10:00:00',
+    end_time: '12:30:00',
     price: 200,
     status: 'scheduled',
+    language_version: 'Original',
   }
   const data = { ...defaults, ...overrides }
 
   const result = await query(
-    `INSERT INTO shows (screen_id, movie_id, show_time, price, status)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO shows (screen_id, movie_id, show_date, start_time, end_time, price, status, language_version)
+     VALUES ($1, $2, $3, $4::time, $5::time, $6, $7, $8)
      RETURNING *`,
-    [screenId, movieId, data.show_time, data.price, data.status]
+    [screenId, movieId, data.show_date, data.start_time, data.end_time, data.price, data.status, data.language_version]
   )
   return result.rows[0]
 }
@@ -99,7 +104,7 @@ export async function createShow(screenId, movieId, overrides = {}) {
 export async function createCustomer(overrides = {}) {
   const defaults = {
     name: 'Test Customer',
-    email: `customer_${Date.now()}@test.com`,
+    email: `customer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@test.com`,
     password: await bcrypt.hash('CustomerPass123!', 12),
     phone: '9876543210',
     is_active: true,
@@ -134,18 +139,18 @@ export async function createBooking(customerId, showId, overrides = {}) {
 
 export async function createPaymentOrder(showId, customerId, overrides = {}) {
   const defaults = {
-    razorpay_order_id: `order_${Date.now()}`,
+    order_id: `order_${Date.now()}`,
     amount: 400,
-    currency: 'INR',
     status: 'created',
+    seats: JSON.stringify(['A1', 'A2']),
   }
   const data = { ...defaults, ...overrides }
 
   const result = await query(
-    `INSERT INTO payment_orders (show_id, customer_id, razorpay_order_id, amount, currency, status)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO payment_orders (show_id, customer_id, order_id, amount, status, seats)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb)
      RETURNING *`,
-    [showId, customerId, data.razorpay_order_id, data.amount, data.currency, data.status]
+    [showId, customerId, data.order_id, data.amount, data.status, data.seats]
   )
   return result.rows[0]
 }

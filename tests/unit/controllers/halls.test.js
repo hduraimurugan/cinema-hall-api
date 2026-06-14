@@ -87,7 +87,7 @@ describe('updateHall', () => {
   })
 
   it('returns 403 if hall not owned', async () => {
-    const { req, res } = mockReqRes({ admin: { id: 'other-id' }, params: { id: hallId }, body: { name: 'Hacked' } })
+    const { req, res } = mockReqRes({ admin: { id: '00000000-0000-0000-0000-000000000000' }, params: { id: hallId }, body: { name: 'Hacked' } })
     await updateHall(req, res)
     expect(res.status).toHaveBeenCalledWith(403)
   })
@@ -109,7 +109,7 @@ describe('updateHall', () => {
 
 describe('deleteHall', () => {
   it('returns 403 if hall not owned', async () => {
-    const { req, res } = mockReqRes({ admin: { id: 'other-id' }, params: { id: '00000000-0000-0000-0000-000000000000' } })
+    const { req, res } = mockReqRes({ admin: { id: '00000000-0000-0000-0000-000000000000' }, params: { id: '00000000-0000-0000-0000-000000000001' } })
     await deleteHall(req, res)
     expect(res.status).toHaveBeenCalledWith(403)
   })

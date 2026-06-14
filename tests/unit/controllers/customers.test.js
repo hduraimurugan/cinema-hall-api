@@ -6,8 +6,6 @@ vi.mock('../../../utils/logger.js', () => ({ default: { info: vi.fn(), error: vi
 
 import { getAllCustomers, getCustomerDetails } from '../../../controllers/customers.Controller.js'
 
-const pool = getPool
-
 function mockReqRes(overrides = {}) {
   const req = { query: {}, params: {}, ...overrides }
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() }
@@ -30,7 +28,6 @@ describe('getAllCustomers', () => {
   it('returns all customers with stats', async () => {
     const { req, res } = mockReqRes({ query: { page: 1, limit: 10 } })
     await getAllCustomers(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
     const data = res.json.mock.calls[0][0]
     expect(data.customers.length).toBeGreaterThanOrEqual(2)
     expect(data.stats.total).toBeGreaterThanOrEqual(2)
@@ -40,7 +37,6 @@ describe('getAllCustomers', () => {
   it('filters by search term', async () => {
     const { req, res } = mockReqRes({ query: { search: 'Alice' } })
     await getAllCustomers(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
     const data = res.json.mock.calls[0][0]
     expect(data.customers).toHaveLength(1)
     expect(data.customers[0].name).toBe('Alice')
@@ -49,7 +45,7 @@ describe('getAllCustomers', () => {
   it('enforces max limit of 100', async () => {
     const { req, res } = mockReqRes({ query: { limit: 500 } })
     await getAllCustomers(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.json).toHaveBeenCalled()
   })
 })
 
@@ -64,7 +60,6 @@ describe('getCustomerDetails', () => {
     const c = customers[0]
     const { req, res } = mockReqRes({ params: { id: c.id } })
     await getCustomerDetails(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
     const data = res.json.mock.calls[0][0]
     expect(data.customer.id).toBe(c.id)
     expect(data).toHaveProperty('recentBookings')

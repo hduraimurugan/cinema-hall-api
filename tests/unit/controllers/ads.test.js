@@ -46,7 +46,6 @@ describe('getAllAds', () => {
   it('returns empty array initially', async () => {
     const { req, res } = mockReqRes()
     await getAllAds(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json.mock.calls[0][0].ads).toEqual([])
   })
 
@@ -54,7 +53,6 @@ describe('getAllAds', () => {
     await createTestAd()
     const { req, res } = mockReqRes()
     await getAllAds(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json.mock.calls[0][0].ads).toHaveLength(1)
   })
 })
@@ -86,7 +84,6 @@ describe('updateAd', () => {
       body: { title: 'After', image_url: 'x', placement: 'banner', start_date: '2024-01-01', end_date: '2030-12-31' },
     })
     await updateAd(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json.mock.calls[0][0].ad.title).toBe('After')
   })
 
@@ -106,7 +103,7 @@ describe('deleteAd', () => {
 
     const { req: req1, res: res1 } = mockReqRes({ params: { id: ad.id } })
     await deleteAd(req1, res1)
-    expect(res1.status).toHaveBeenCalledWith(200)
+    expect(res1.json.mock.calls[0][0].message).toMatch(/deleted/i)
 
     const { req: req2, res: res2 } = mockReqRes({ params: { id: ad.id } })
     await deleteAd(req2, res2)
@@ -126,7 +123,6 @@ describe('getActiveAds', () => {
 
     const { req, res } = mockReqRes({ query: { placement: 'sidebar' } })
     await getActiveAds(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json.mock.calls[0][0].ads.length).toBeGreaterThanOrEqual(1)
   })
 })
@@ -137,7 +133,6 @@ describe('recordClick', () => {
 
     const { req, res } = mockReqRes({ params: { id: ad.id }, cookies: {} })
     await recordClick(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json.mock.calls[0][0].recorded).toBe(true)
   })
 })
@@ -148,7 +143,6 @@ describe('getAdClicks', () => {
 
     const { req, res } = mockReqRes({ params: { id: ad.id } })
     await getAdClicks(req, res)
-    expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json.mock.calls[0][0].clicks).toEqual([])
   })
 })

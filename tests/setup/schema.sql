@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS cinema_hall (
   district TEXT NOT NULL DEFAULT '',
   state TEXT NOT NULL DEFAULT '',
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  latitude NUMERIC(10,7),
+  longitude NUMERIC(10,7),
   phone TEXT,
   description TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
