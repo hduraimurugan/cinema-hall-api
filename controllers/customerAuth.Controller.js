@@ -149,7 +149,7 @@ export const loginCustomer = async (req, res) => {
     const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
     await generateCustomerTokenAndSetCookie(res, tokenPayload, meta)
 
-    res.json({
+    res.status(200).json({
       message: 'Login successful',
       customer: {
         id: customer.id,
@@ -215,7 +215,7 @@ export const updateCustomerProfile = async (req, res) => {
       ]
     )
 
-    res.json({ message: 'Profile updated successfully', customer: result.rows[0] })
+    res.status(200).json({ message: 'Profile updated successfully', customer: result.rows[0] })
   } catch (err) {
     logger.error('❌ Update profile error:', { message: err.message })
     res.status(500).json({ error: 'Profile update failed. Try again later.' })
@@ -278,7 +278,7 @@ export const changePasswordCustomer = async (req, res) => {
     // Send notification email (non-fatal)
     sendCustomerPasswordChangedEmail(customer.email, customer.name).catch(() => {})
 
-    res.json({ message: 'Password changed successfully. Other devices have been signed out.' })
+    res.status(200).json({ message: 'Password changed successfully. Other devices have been signed out.' })
   } catch (err) {
     logger.error('❌ Change password error:', { message: err.message })
     res.status(500).json({ error: 'Failed to change password. Try again later.' })
@@ -295,16 +295,16 @@ export const forgotPasswordCustomer = async (req, res) => {
 
   try {
     const result = await pool.query(`SELECT id, name FROM customers WHERE email = $1`, [email])
-    if (result.rows.length === 0) return res.json({ message: GENERIC_MSG })
+    if (result.rows.length === 0) return res.status(200).json({ message: GENERIC_MSG })
 
     const customer = result.rows[0]
 
     // Delegate to OTP logic: hash + store + email (password_reset type)
     // Rate limit check (3 per 10 min) is handled inside otp.Controller.js
     const otpHash = await _generateAndSendOtp(email, customer.name, 'password_reset')
-    if (!otpHash) return res.json({ message: GENERIC_MSG }) // rate-limited, still generic
+    if (!otpHash) return res.status(200).json({ message: GENERIC_MSG }) // rate-limited, still generic
 
-    res.json({ message: GENERIC_MSG })
+    res.status(200).json({ message: GENERIC_MSG })
   } catch (err) {
     logger.error('❌ Forgot password error:', { message: err.message })
     res.status(500).json({ error: 'Failed to process request. Try again later.' })
@@ -376,7 +376,7 @@ export const resetPasswordCustomer = async (req, res) => {
     // Send notification email (non-fatal)
     sendCustomerPasswordChangedEmail(customer.email, customer.name).catch(() => {})
 
-    res.json({ message: 'Password reset successfully. Please sign in with your new password.' })
+    res.status(200).json({ message: 'Password reset successfully. Please sign in with your new password.' })
   } catch (err) {
     logger.error('❌ Reset password error:', { message: err.message })
     res.status(500).json({ error: 'Failed to reset password. Try again later.' })
@@ -406,7 +406,7 @@ export const refreshCustomerToken = async (req, res) => {
       maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day
     })
 
-    res.json({ success: true })
+    res.status(200).json({ success: true })
   } catch (err) {
     logger.error('❌ Refresh token error:', { message: err.message })
     res.status(500).json({ error: 'Token refresh failed' })
@@ -429,7 +429,7 @@ export const getCustomerMe = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Customer not found' })
 
     const customer = result.rows[0]
-    res.json({
+    res.status(200).json({
       customer: {
         ...customer,
         auth_providers: customer.auth_providers || ['local'],
@@ -555,7 +555,7 @@ export const googleLoginCustomer = async (req, res) => {
     const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
     await generateCustomerTokenAndSetCookie(res, tokenPayload, meta)
 
-    res.json({
+    res.status(200).json({
       message: isNewAccount ? 'Account created successfully' : 'Login successful',
       customer: {
         id: customer.id,
@@ -614,7 +614,7 @@ export const linkProviderCustomer = async (req, res) => {
       [updatedProviders, JSON.stringify(updatedProviderIds), googleUser.picture, customerId]
     )
 
-    res.json({ message: 'Google account linked successfully.', auth_providers: updatedProviders })
+    res.status(200).json({ message: 'Google account linked successfully.', auth_providers: updatedProviders })
   } catch (err) {
     logger.error('❌ linkProvider customer error:', { message: err.message })
     res.status(500).json({ error: 'Failed to link provider. Try again later.' })
@@ -661,7 +661,7 @@ export const unlinkProviderCustomer = async (req, res) => {
       [remainingProviders, JSON.stringify(updatedProviderIds), customerId]
     )
 
-    res.json({ message: 'Google account unlinked successfully.', auth_providers: remainingProviders })
+    res.status(200).json({ message: 'Google account unlinked successfully.', auth_providers: remainingProviders })
   } catch (err) {
     logger.error('❌ unlinkProvider customer error:', { message: err.message })
     res.status(500).json({ error: 'Failed to unlink provider. Try again later.' })
@@ -699,7 +699,7 @@ export const setPasswordCustomer = async (req, res) => {
       [hashedPassword, updatedProviders, customerId]
     )
 
-    res.json({ message: 'Password set successfully. You can now login with email and password.', auth_providers: updatedProviders })
+    res.status(200).json({ message: 'Password set successfully. You can now login with email and password.', auth_providers: updatedProviders })
   } catch (err) {
     logger.error('❌ setPassword customer error:', { message: err.message })
     res.status(500).json({ error: 'Failed to set password. Try again later.' })

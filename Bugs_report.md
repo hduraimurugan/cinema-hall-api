@@ -82,7 +82,7 @@
 **Discovered**: Throughout all phases  
 **Pattern**: Controllers call `res.json({...})` without `res.status(200)` first, relying on Express's default 200 status.  
 **Impact**: Inconsistent pattern; tests must check `res.json` body instead of asserting status codes for these routes.  
-**Status**: 🔴 Open (refactoring needed)
+**Status**: ✅ Fixed
 
 ### MED-2: Auth Test Password Mutation Causes Test Order Dependency
 
@@ -90,7 +90,7 @@
 **Discovered**: Phase 4C — auth controller tests  
 **Root Cause**: The `changePassword` success test modifies the shared admin's password, mutating state for subsequent tests in the same `describe` block.  
 **Mitigation**: Tests are ordered so error-path tests run after success-path tests.  
-**Status**: 🔴 Open (fragile ordering)
+**Status**: ✅ Fixed
 
 ---
 
@@ -152,11 +152,10 @@
 |----------|------|-------|-------|
 | 🔴 Critical | 0 | 4 | 4 |
 | 🟠 High | 0 | 3 | 3 |
-| 🟡 Medium | 2 | 0 | 2 |
+| 🟡 Medium | 0 | 2 | 2 |
 | 🟢 Low | 0 | 8 | 8 |
-| **Total** | **2** | **15** | **17** |
+| **Total** | **0** | **17** | **17** |
 
 ### Open Items Requiring Attention
 
-1. **MED-1**: Inconsistent `res.json()` status pattern — add explicit `res.status(200)` throughout
-2. **MED-2**: Auth test password mutation — use separate admin per test or reset password in `afterEach`
+None. All discovered bugs are now resolved!

@@ -390,7 +390,7 @@ export const getAllMovies = async (req, res) => {
 
         const result = await client.query(query, values)
 
-        res.json({
+        res.status(200).json({
             success: true,
             movies: result.rows,
             page: Number(page),

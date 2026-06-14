@@ -134,7 +134,7 @@ export const editScreen = async (req, res) => {
 
         const result = await client.query(queryStr, values)
 
-        res.json(result.rows[0])
+        res.status(200).json(result.rows[0])
     } catch (error) {
         logger.error('Error editing screen:', { message: error.message })
         res.status(500).json({ message: 'Server error while updating screen' })
@@ -170,7 +170,7 @@ export const deleteScreen = async (req, res) => {
         const deleteQuery = 'DELETE FROM screens WHERE id = $1 RETURNING *'
         const result = await client.query(deleteQuery, [screenId])
 
-        res.json({ message: 'Screen deleted successfully', screen: result.rows[0] })
+        res.status(200).json({ message: 'Screen deleted successfully', screen: result.rows[0] })
     } catch (error) {
         logger.error('Error deleting screen:', { message: error.message })
         res.status(500).json({ message: 'Server error while deleting screen' })
@@ -193,7 +193,7 @@ export const getMyScreens = async (req, res) => {
 
         const result = await client.query(query, [req.currentHallId])
 
-        res.json(result.rows)
+        res.status(200).json(result.rows)
     } catch (error) {
         logger.error('Error fetching screens:', { message: error.message })
         res.status(500).json({ message: 'Server error while fetching screens' })

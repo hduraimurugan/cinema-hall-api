@@ -34,7 +34,7 @@ export const sendOtp = async (req, res) => {
         if (customerResult.rows.length === 0) {
             // Generic response to prevent user enumeration on password_reset
             if (type === 'password_reset') {
-                return res.json({ message: 'If an account with that email exists, an OTP has been sent.' })
+                return res.status(200).json({ message: 'If an account with that email exists, an OTP has been sent.' })
             }
             return res.status(404).json({ error: 'Customer not found' })
         }
@@ -75,7 +75,7 @@ export const sendOtp = async (req, res) => {
         // 5️⃣ Send OTP via email
         await sendCustomerOtpEmail(email, customer.name, otp, type)
 
-        res.json({ message: type === 'password_reset'
+        res.status(200).json({ message: type === 'password_reset'
             ? 'If an account with that email exists, an OTP has been sent.'
             : 'OTP sent successfully' })
     } catch (err) {
@@ -134,7 +134,7 @@ export const verifyOtp = async (req, res) => {
             await pool.query(`UPDATE customers SET is_verified = true WHERE email = $1`, [email])
         }
 
-        res.json({ message: type === 'signup'
+        res.status(200).json({ message: type === 'signup'
             ? 'OTP verified successfully. Account activated!'
             : 'OTP verified successfully.' })
     } catch (err) {

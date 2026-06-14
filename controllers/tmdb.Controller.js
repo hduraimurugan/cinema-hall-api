@@ -25,7 +25,7 @@ export const getTMDBPopular = async (req, res) => {
     try {
         const { page = 1, with_original_language } = req.query
         const data = await tmdbFetch('/movie/popular', { language: 'en-US', page, with_original_language })
-        res.json(data)
+        res.status(200).json(data)
     } catch (error) {
         logger.error('TMDB popular error:', { message: error.message })
         res.status(502).json({ message: error.message })
@@ -37,7 +37,7 @@ export const getTMDBNowPlaying = async (req, res) => {
     try {
         const { page = 1, with_original_language } = req.query
         const data = await tmdbFetch('/movie/now_playing', { language: 'en-US', page, with_original_language })
-        res.json(data)
+        res.status(200).json(data)
     } catch (error) {
         logger.error('TMDB now_playing error:', { message: error.message })
         res.status(502).json({ message: error.message })
@@ -49,7 +49,7 @@ export const getTMDBUpcoming = async (req, res) => {
     try {
         const { page = 1, with_original_language } = req.query
         const data = await tmdbFetch('/movie/upcoming', { language: 'en-US', page, with_original_language })
-        res.json(data)
+        res.status(200).json(data)
     } catch (error) {
         logger.error('TMDB upcoming error:', { message: error.message })
         res.status(502).json({ message: error.message })
@@ -61,7 +61,7 @@ export const getTMDBTopRated = async (req, res) => {
     try {
         const { page = 1, with_original_language } = req.query
         const data = await tmdbFetch('/movie/top_rated', { language: 'en-US', page, with_original_language })
-        res.json(data)
+        res.status(200).json(data)
     } catch (error) {
         logger.error('TMDB top_rated error:', { message: error.message })
         res.status(502).json({ message: error.message })
@@ -76,7 +76,7 @@ export const searchTMDB = async (req, res) => {
             return res.status(400).json({ message: 'Search query is required' })
         }
         const data = await tmdbFetch('/search/movie', { language: 'en-US', query, page, with_original_language })
-        res.json(data)
+        res.status(200).json(data)
     } catch (error) {
         logger.error('TMDB search error:', { message: error.message })
         res.status(502).json({ message: error.message })
@@ -98,7 +98,7 @@ export const getTMDBInTheatres = async (req, res) => {
             page,
             with_original_language,
         })
-        res.json(data)
+        res.status(200).json(data)
     } catch (error) {
         logger.error('TMDB in-theatres error:', { message: error.message })
         res.status(502).json({ message: error.message })
@@ -113,7 +113,7 @@ export const getTMDBMovieDetails = async (req, res) => {
             language: 'en-US',
             append_to_response: 'videos,credits',
         })
-        res.json(data)
+        res.status(200).json(data)
     } catch (error) {
         logger.error('TMDB movie details error:', { message: error.message })
         res.status(502).json({ message: error.message })

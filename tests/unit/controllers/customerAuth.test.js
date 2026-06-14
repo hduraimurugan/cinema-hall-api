@@ -84,6 +84,7 @@ afterEach(async () => {
   await query('DELETE FROM otp_verifications')
   await query('DELETE FROM customer_sessions')
   await query('DELETE FROM customers WHERE id != $1', [sharedCustomer.id])
+  await query('UPDATE customers SET password = $2 WHERE id = $1', [sharedCustomer.id, sharedCustomer.password])
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════

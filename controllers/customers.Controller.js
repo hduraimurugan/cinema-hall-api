@@ -41,7 +41,7 @@ export const getAllCustomers = async (req, res) => {
       ),
     ])
 
-    res.json({
+    res.status(200).json({
       customers: customersResult.rows,
       total: parseInt(countResult.rows[0].count),
       stats: {
@@ -87,7 +87,7 @@ export const getCustomerDetails = async (req, res) => {
       return res.status(404).json({ error: 'Customer not found.' })
     }
 
-    res.json({
+    res.status(200).json({
       customer: customerResult.rows[0],
       recentBookings: bookingsResult.rows,
       activeSessions: sessionsResult.rows,

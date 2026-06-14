@@ -116,7 +116,7 @@ export const editMovie = async (req, res) => {
             return res.status(404).json({ message: 'Movie not found' })
         }
 
-        res.json(result.rows[0])
+        res.status(200).json(result.rows[0])
     } catch (error) {
         logger.error('Error editing movie:', { message: error.message })
         res.status(500).json({ message: 'Server error while editing movie' })
@@ -138,7 +138,7 @@ export const deleteMovie = async (req, res) => {
             return res.status(404).json({ message: 'Movie not found' })
         }
 
-        res.json({ message: 'Movie deleted successfully', movie: result.rows[0] })
+        res.status(200).json({ message: 'Movie deleted successfully', movie: result.rows[0] })
     } catch (error) {
         logger.error('Error deleting movie:', { message: error.message })
         res.status(500).json({ message: 'Server error while deleting movie' })
@@ -225,7 +225,7 @@ export const getAllMovies = async (req, res) => {
 
         const result = await client.query(query, values)
 
-        res.json({
+        res.status(200).json({
             movies: result.rows,
             page: Number(page),
             limit: Number(limit),
@@ -296,7 +296,7 @@ export const updateMovieStatus = async (req, res) => {
             return res.status(404).json({ message: 'Movie not found' })
         }
 
-        res.json(result.rows[0])
+        res.status(200).json(result.rows[0])
     } catch (error) {
         logger.error('Error updating status:', { message: error.message })
         res.status(500).json({ message: 'Server error while updating status' })
@@ -312,7 +312,7 @@ export const getMovieTmdbIds = async (req, res) => {
         const result = await client.query(
             'SELECT tmdb_id FROM movies WHERE tmdb_id IS NOT NULL'
         )
-        res.json({ tmdb_ids: result.rows.map(r => r.tmdb_id) })
+        res.status(200).json({ tmdb_ids: result.rows.map(r => r.tmdb_id) })
     } catch (error) {
         logger.error('Error fetching tmdb ids:', { message: error.message })
         res.status(500).json({ message: 'Server error while fetching tmdb ids' })

@@ -145,7 +145,7 @@ export const verifyAdminEmail = async (req, res) => {
     }
 
     await logSecurityEvent(record.admin_id, 'EMAIL_VERIFIED', req)
-    res.json({ message: 'Email verified successfully. You can now log in.' })
+    res.status(200).json({ message: 'Email verified successfully. You can now log in.' })
   } catch (err) {
     logger.error('❌ verifyAdminEmail error:', { message: err.message })
     res.status(500).json({ error: 'Verification failed. Try again later.' })
@@ -166,7 +166,7 @@ export const resendVerificationEmail = async (req, res) => {
     )
 
     if (result.rows.length === 0 || result.rows[0].email_verified) {
-      return res.json(genericResponse)
+      return res.status(200).json(genericResponse)
     }
 
     const admin = result.rows[0]
@@ -208,7 +208,7 @@ export const resendVerificationEmail = async (req, res) => {
     await sendAdminVerificationEmail(admin.email, admin.name, verificationLink)
     await logSecurityEvent(admin.id, 'RESEND_VERIFICATION', req)
 
-    res.json(genericResponse)
+    res.status(200).json(genericResponse)
   } catch (err) {
     logger.error('❌ resendVerificationEmail error:', { message: err.message })
     res.status(500).json({ error: 'Failed to send verification email. Try again later.' })
@@ -306,7 +306,7 @@ export const loginCinemaAdmin = async (req, res) => {
 
     await logSecurityEvent(admin.admin_id, 'LOGIN_SUCCESS', req)
 
-    res.json({
+    res.status(200).json({
       message: 'Login successful',
       accessToken,
       refreshToken,
@@ -361,7 +361,7 @@ export const refreshCinemaAdminToken = async (req, res) => {
       maxAge: 1 * 24 * 60 * 60 * 1000,
     })
 
-    res.json({ success: true })
+    res.status(200).json({ success: true })
   } catch (err) {
     logger.error('❌ Refresh token error:', { message: err.message })
     res.status(500).json({ error: 'Token refresh failed' })
@@ -394,7 +394,7 @@ export const getCinemaAdminMe = async (req, res) => {
     }
 
     const row = result.rows[0]
-    res.json({
+    res.status(200).json({
       admin: {
         id: row.admin_id,
         name: row.admin_name,
@@ -443,7 +443,7 @@ export const forgotPassword = async (req, res) => {
     )
 
     if (result.rows.length === 0 || !result.rows[0].email_verified) {
-      return res.json(genericResponse)
+      return res.status(200).json(genericResponse)
     }
 
     const admin = result.rows[0]
@@ -474,7 +474,7 @@ export const forgotPassword = async (req, res) => {
     await sendAdminPasswordResetEmail(admin.email, admin.name, resetLink)
     await logSecurityEvent(admin.id, 'PASSWORD_RESET_REQUESTED', req)
 
-    res.json(genericResponse)
+    res.status(200).json(genericResponse)
   } catch (err) {
     logger.error('❌ forgotPassword error:', { message: err.message })
     res.status(500).json({ error: 'Failed to process request. Try again later.' })
@@ -543,7 +543,7 @@ export const resetPassword = async (req, res) => {
     sendAdminPasswordChangedEmail(record.email, record.name).catch(() => {})
     await logSecurityEvent(record.admin_id, 'PASSWORD_RESET_SUCCESS', req)
 
-    res.json({ message: 'Password reset successfully. Please log in with your new password.' })
+    res.status(200).json({ message: 'Password reset successfully. Please log in with your new password.' })
   } catch (err) {
     logger.error('❌ resetPassword error:', { message: err.message })
     res.status(500).json({ error: 'Password reset failed. Try again later.' })
@@ -604,7 +604,7 @@ export const changePassword = async (req, res) => {
     sendAdminPasswordChangedEmail(admin.email, admin.name).catch(() => {})
     await logSecurityEvent(adminId, 'PASSWORD_CHANGED', req)
 
-    res.json({ message: 'Password changed successfully.' })
+    res.status(200).json({ message: 'Password changed successfully.' })
   } catch (err) {
     logger.error('❌ changePassword error:', { message: err.message })
     res.status(500).json({ error: 'Failed to change password. Try again later.' })
@@ -647,7 +647,7 @@ export const logoutAllDevices = async (req, res) => {
     res.clearCookie('refreshToken', cookieOpts)
 
     await logSecurityEvent(adminId, 'LOGOUT_ALL_DEVICES', req)
-    res.json({ message: 'Signed out from all devices.' })
+    res.status(200).json({ message: 'Signed out from all devices.' })
   } catch (err) {
     logger.error('❌ logoutAllDevices error:', { message: err.message })
     res.status(500).json({ error: 'Failed to sign out from all devices.' })
@@ -682,7 +682,7 @@ export const getAdminSecurity = async (req, res) => {
     if (adminResult.rows.length === 0) return res.status(404).json({ error: 'Admin not found.' })
 
     const a = adminResult.rows[0]
-    res.json({
+    res.status(200).json({
       emailVerified: a.email_verified,
       emailVerifiedAt: a.email_verified_at,
       failedLoginAttempts: a.failed_login_attempts,
@@ -739,7 +739,7 @@ export const getAllAdmins = async (req, res) => {
       ),
     ])
 
-    res.json({
+    res.status(200).json({
       admins: adminsResult.rows,
       total: parseInt(countResult.rows[0].count),
     })
@@ -780,7 +780,7 @@ export const getAdminSecurityLogs = async (req, res) => {
       return res.status(404).json({ error: 'Admin not found.' })
     }
 
-    res.json({ admin: adminResult.rows[0], logs: logsResult.rows })
+    res.status(200).json({ admin: adminResult.rows[0], logs: logsResult.rows })
   } catch (err) {
     logger.error('❌ getAdminSecurityLogs error:', { message: err.message })
     res.status(500).json({ error: 'Failed to fetch admin security logs.' })
@@ -810,7 +810,7 @@ export const updateCinemaHall = async (req, res) => {
     }
 
     const hall = result.rows[0]
-    res.json({
+    res.status(200).json({
       message: 'Cinema hall updated successfully.',
       hall: {
         ...hall,
@@ -935,7 +935,7 @@ export const googleLoginAdmin = async (req, res) => {
     )
     const row = fullResult.rows[0]
 
-    res.json({
+    res.status(200).json({
       message: isNewAccount ? 'Account created successfully' : 'Login successful',
       accessToken,
       refreshToken,
@@ -1081,7 +1081,7 @@ export const githubLoginAdmin = async (req, res) => {
     )
     const row = fullResult.rows[0]
 
-    res.json({
+    res.status(200).json({
       message: isNewAccount ? 'Account created successfully' : 'Login successful',
       accessToken,
       refreshToken,
@@ -1175,7 +1175,7 @@ export const linkProviderAdmin = async (req, res) => {
     )
 
     await logSecurityEvent(adminId, `LINK_${provider.toUpperCase()}`, req)
-    res.json({ message: `${provider} account linked successfully.`, auth_providers: updatedProviders })
+    res.status(200).json({ message: `${provider} account linked successfully.`, auth_providers: updatedProviders })
   } catch (err) {
     logger.error('❌ linkProvider error:', { message: err.message })
     res.status(500).json({ error: 'Failed to link provider. Try again later.' })
@@ -1223,7 +1223,7 @@ export const unlinkProviderAdmin = async (req, res) => {
     )
 
     await logSecurityEvent(adminId, `UNLINK_${provider.toUpperCase()}`, req)
-    res.json({ message: `${provider} account unlinked successfully.`, auth_providers: remainingProviders })
+    res.status(200).json({ message: `${provider} account unlinked successfully.`, auth_providers: remainingProviders })
   } catch (err) {
     logger.error('❌ unlinkProvider error:', { message: err.message })
     res.status(500).json({ error: 'Failed to unlink provider. Try again later.' })
@@ -1262,7 +1262,7 @@ export const setPasswordAdmin = async (req, res) => {
     )
 
     await logSecurityEvent(adminId, 'SET_PASSWORD', req)
-    res.json({ message: 'Password set successfully. You can now login with email and password.', auth_providers: updatedProviders })
+    res.status(200).json({ message: 'Password set successfully. You can now login with email and password.', auth_providers: updatedProviders })
   } catch (err) {
     logger.error('❌ setPassword error:', { message: err.message })
     res.status(500).json({ error: 'Failed to set password. Try again later.' })

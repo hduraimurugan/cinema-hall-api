@@ -84,6 +84,7 @@ afterEach(async () => {
   await query('DELETE FROM admin_sessions')
   await query('DELETE FROM cinema_hall WHERE id != $1', [sharedHall.id])
   await query('DELETE FROM cinema_admin_user WHERE id != $1', [sharedAdmin.id])
+  await query('UPDATE cinema_admin_user SET password = $2 WHERE id = $1', [sharedAdmin.id, sharedAdmin.password])
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
