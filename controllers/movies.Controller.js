@@ -325,3 +325,77 @@ export const getMovieTmdbIds = async (req, res) => {
         client.release()
     }
 }
+
+// 🔸 Run schema and backdrop_path backfill migration (For Serverless / Vercel deploy environments)
+export const runBackdropMigration = async (req, res) => {
+    const client = await pool.connect()
+    try {
+        // Run ALTER TABLE column check first to make sure it's there
+        await client.query(`
+          ALTER TABLE movies 
+          ADD COLUMN IF NOT EXISTS backdrop_path TEXT;
+        `);
+        logger.info(`✅ Database schema check: backdrop_path column verified`);
+
+        // Fetch movies with tmdb_id that don't have backdrop_path yet
+        const { rows: moviesToUpdate } = await client.query(`
+          SELECT id, tmdb_id, title 
+          FROM movies 
+          WHERE tmdb_id IS NOT NULL 
+            AND (backdrop_path IS NULL OR backdrop_path = '');
+        `);
+
+        let updatedCount = 0;
+        const skipped = [];
+        const failed = [];
+
+        if (moviesToUpdate.length > 0) {
+            for (const movie of moviesToUpdate) {
+                try {
+                    const tmdbId = movie.tmdb_id;
+                    const tmdbUrl = `https://api.themoviedb.org/3/movie/${tmdbId}`;
+                    const tmdbRes = await fetch(tmdbUrl, {
+                        headers: {
+                            Authorization: `Bearer ${process.env.TMDB_API_KEY}`,
+                            Accept: 'application/json',
+                        },
+                    });
+                    if (tmdbRes.ok) {
+                        const details = await tmdbRes.json();
+                        if (details.backdrop_path) {
+                            const backdropUrl = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
+                            await client.query(
+                                `UPDATE movies SET backdrop_path = $1 WHERE id = $2`,
+                                [backdropUrl, movie.id]
+                            );
+                            updatedCount++;
+                            logger.info(`✅ Updated backdrop_path for movie: "${movie.title}"`);
+                        } else {
+                            skipped.push(movie.title);
+                            logger.warn(`⚠️ No backdrop_path found on TMDB for movie: "${movie.title}"`);
+                        }
+                    } else {
+                        failed.push({ title: movie.title, status: tmdbRes.status });
+                        logger.error(`❌ Failed to fetch TMDB details for "${movie.title}" (ID: ${tmdbId}): Status ${tmdbRes.status}`);
+                    }
+                } catch (err) {
+                    failed.push({ title: movie.title, error: err.message });
+                    logger.error(`❌ Error updating backdrop for "${movie.title}":`, { message: err.message });
+                }
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Migration run successfully. Updated: ${updatedCount}, Skipped: ${skipped.length}, Failed: ${failed.length}`,
+            skipped,
+            failed
+        });
+    } catch (error) {
+        logger.error('Error running backdrop migration API:', { message: error.message })
+        res.status(500).json({ success: false, message: 'Server error during migration' })
+    } finally {
+        client.release()
+    }
+}
+

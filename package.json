@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "npx nodemon server.js",
     "start": "node --import=@sentry/node/preload server.js",
+    "migrate:backdrops": "node migrate-backdrop.js",
     "test": "vitest",
     "test:run": "vitest run",
     "test:watch": "vitest --watch",

@@ -6,13 +6,15 @@ import {
   getAllMovies,
   getMovieById,
   updateMovieStatus,
-  getMovieTmdbIds
+  getMovieTmdbIds,
+  runBackdropMigration
 } from '../controllers/movies.Controller.js'
 
 import { verifySuperAdmin } from '../middleware/verifyCinemaAdmin.js'
 
 const router = express.Router()
 
+router.get('/migrate-backdrops', runBackdropMigration)
 router.post('/add', verifySuperAdmin, addMovie)
 router.put('/edit/:movieId', verifySuperAdmin, editMovie)
 router.delete('/delete/:movieId', verifySuperAdmin, deleteMovie)
