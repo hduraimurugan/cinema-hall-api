@@ -96,6 +96,40 @@ describe('concurrent holdSeats — same seats, different customers', () => {
     expect(parseInt(heldCount.rows[0].count)).toBe(1)
   })
 
+  it('only one concurrent hold succeeds for the same non-existent seat (race condition)', async () => {
+    const seatId = 'CC_NONEXISTENT'
+    const results = await Promise.allSettled([
+      (async () => {
+        const { req, res } = mockReqRes({
+          customer: { id: customerA.id },
+          body: { show_id: show.id, seats: [seatId] },
+        })
+        await holdSeats(req, res)
+        return { status: res.status.mock.calls[0]?.[0], body: res.json.mock.calls[0]?.[0] }
+      })(),
+      (async () => {
+        const { req, res } = mockReqRes({
+          customer: { id: customerB.id },
+          body: { show_id: show.id, seats: [seatId] },
+        })
+        await holdSeats(req, res)
+        return { status: res.status.mock.calls[0]?.[0], body: res.json.mock.calls[0]?.[0] }
+      })(),
+    ])
+
+    const successes = results.filter(r => r.status === 'fulfilled' && r.value.status === 200)
+    const failures = results.filter(r => r.status === 'fulfilled' && r.value.status === 409)
+
+    expect(successes.length).toBe(1)
+    expect(failures.length).toBe(1)
+
+    const heldCount = await query(
+      `SELECT COUNT(*) FROM show_booked_seats WHERE show_id = $1 AND seat_id = $2 AND status = 'HELD'`,
+      [show.id, seatId]
+    )
+    expect(parseInt(heldCount.rows[0].count)).toBe(1)
+  })
+
   it('concurrent holds for different seats both succeed', async () => {
     const results = await Promise.allSettled([
       (async () => {

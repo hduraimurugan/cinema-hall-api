@@ -43,10 +43,15 @@ export const holdSeats = async (req, res) => {
           INSERT INTO show_booked_seats 
             (show_id, seat_id, seat_label, row_label, column_number, status, held_by, hold_expires_at)
           VALUES ($1, $2, $2, '', 0, 'HELD', $3, $4)
+          ON CONFLICT (show_id, seat_id) DO NOTHING
           RETURNING *;
         `;
-                await client.query(insertQuery, [show_id, seat_id, customer_id, holdExpiry]);
-                results.push({ seat_id, status: 'held', expires_at: holdExpiry });
+                const insertResult = await client.query(insertQuery, [show_id, seat_id, customer_id, holdExpiry]);
+                if (insertResult.rowCount === 0) {
+                    results.push({ seat_id, status: 'unavailable', held_by: null });
+                } else {
+                    results.push({ seat_id, status: 'held', expires_at: holdExpiry });
+                }
 
             } else {
                 const row = lockResult.rows[0];
