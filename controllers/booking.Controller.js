@@ -249,7 +249,7 @@ export const getBookingByPaymentId = async (req, res) => {
         ARRAY(
           SELECT (seat_data->>'row') || (seat_data->>'column')
           FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
-          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(to_jsonb(b.seats)))
+          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(b.seats))
         ) AS seat_labels
       FROM bookings b
       JOIN shows sh ON sh.id = b.show_id
@@ -294,7 +294,7 @@ export const getMyBookings = async (req, res) => {
         ARRAY(
           SELECT (seat_data->>'row') || (seat_data->>'column')
           FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
-          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(to_jsonb(b.seats)))
+          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(b.seats))
         ) AS seat_labels,
         r.refund_status,
         r.razorpay_refund_id,
@@ -345,7 +345,7 @@ export const getCinemaHallBookings = async (req, res) => {
         ARRAY(
           SELECT (seat_data->>'row') || (seat_data->>'column')
           FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
-          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(to_jsonb(b.seats)))
+          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(b.seats))
         ) AS seat_labels
       FROM bookings b
       JOIN shows sh ON sh.id = b.show_id
@@ -440,7 +440,7 @@ export const verifyBookingById = async (req, res) => {
         ARRAY(
           SELECT (seat_data->>'row') || (seat_data->>'column')
           FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
-          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(to_jsonb(b.seats)))
+          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(b.seats))
         ) AS seat_labels,
         r.id AS refund_id,
         r.refund_status,
@@ -503,7 +503,7 @@ export const getBookingDetails = async (req, res) => {
         ARRAY(
           SELECT (seat_data->>'row') || (seat_data->>'column')
           FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
-          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(to_jsonb(b.seats)))
+          WHERE seat_data->>'id' IN (SELECT jsonb_array_elements_text(b.seats))
         ) AS seat_labels,
         r.refund_status,
         r.razorpay_refund_id,

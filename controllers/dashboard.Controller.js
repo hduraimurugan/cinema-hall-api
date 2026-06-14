@@ -94,7 +94,7 @@ export const getDashboardStats = async (req, res) => {
                     ARRAY(
                         SELECT (s->>'row') || (s->>'column')
                         FROM jsonb_array_elements(sc.layout->'seats') s
-                        WHERE to_jsonb(b.seats) ? (s->>'id')
+                        WHERE b.seats ? (s->>'id')
                     ) AS seat_labels
                 FROM bookings b
                 JOIN shows sh ON sh.id = b.show_id

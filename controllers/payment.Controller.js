@@ -187,6 +187,7 @@ export const createOrder = async (req, res) => {
 export const verifyPayment = async (req, res) => {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
     const customer_id = req.customer.id;
+    let isRecreatedIdempotent = false;
 
     try {
         // ── Step 1: Verify Razorpay signature (cryptographic) ───
@@ -222,12 +223,16 @@ export const verifyPayment = async (req, res) => {
                 `SELECT * FROM bookings WHERE payment_id = $1`,
                 [razorpay_payment_id]
             );
-            return res.status(200).json({
-                success:  true,
-                message:  "Payment already verified — booking confirmed!",
-                booking:  existingBooking.rows[0] || null,
-                _idempotent: true,
-            });
+            if (existingBooking.rowCount > 0) {
+                return res.status(200).json({
+                    success:  true,
+                    message:  "Payment already verified — booking confirmed!",
+                    booking:  existingBooking.rows[0],
+                    _idempotent: true,
+                });
+            }
+            logger.warn(`[verifyPayment] Order ${razorpay_order_id} is marked 'paid' but booking was missing. Re-creating booking.`);
+            isRecreatedIdempotent = true;
         }
 
         // ── Step 4: Atomic booking confirmation ─────────────────
@@ -300,8 +305,11 @@ export const verifyPayment = async (req, res) => {
 
             return res.status(200).json({
                 success: true,
-                message: "Payment verified and booking confirmed!",
+                message: isRecreatedIdempotent
+                    ? "Payment already verified — booking confirmed!"
+                    : "Payment verified and booking confirmed!",
                 booking,
+                ...(isRecreatedIdempotent ? { _idempotent: true } : {}),
             });
 
         } catch (error) {
@@ -491,6 +499,22 @@ async function handlePaymentCaptured(payment) {
               AND status   = 'HELD'
         `, [order.show_id, seats]);
 
+        // Insert booking row (idempotent via ON CONFLICT)
+        const bookingResult = await client.query(`
+            INSERT INTO bookings
+              (show_id, customer_id, seats, total_amount, payment_status, payment_id,
+               convenience_fee, gst_amount, offer_code, discount_amount)
+            VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9)
+            ON CONFLICT (payment_id) DO NOTHING
+            RETURNING *
+        `, [order.show_id, order.customer_id, JSON.stringify(seats), order.amount, payment.id,
+            order.convenience_fee || 0, order.gst_amount || 0,
+            order.offer_code || null, order.discount_amount || 0]);
+
+        const booking = bookingResult.rowCount > 0
+            ? bookingResult.rows[0]
+            : (await client.query(`SELECT * FROM bookings WHERE payment_id = $1`, [payment.id])).rows[0];
+
         // Update payment order status
         await client.query(`
             UPDATE payment_orders
@@ -498,8 +522,23 @@ async function handlePaymentCaptured(payment) {
             WHERE order_id = $1
         `, [orderId, payment.id]);
 
+        // Record offer redemption if an offer was applied
+        if (order.offer_code && booking) {
+            const offerLookup = await client.query(
+                `SELECT id FROM offers WHERE code = $1`,
+                [order.offer_code]
+            );
+            if (offerLookup.rowCount > 0) {
+                await client.query(`
+                    INSERT INTO offer_redemptions (offer_id, customer_id, booking_id, discount_applied)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (offer_id, customer_id) DO NOTHING
+                `, [offerLookup.rows[0].id, order.customer_id, booking.id, order.discount_amount]);
+            }
+        }
+
         await client.query('COMMIT');
-        logger.info(`✅ Webhook: Order ${orderId} confirmed via payment.captured`);
+        logger.info(`✅ Webhook: Order ${orderId} confirmed and booking created via payment.captured`);
 
     } catch (error) {
         await client.query('ROLLBACK');
