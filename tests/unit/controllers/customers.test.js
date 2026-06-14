@@ -1,5 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { getPool, cleanupAll, closePool } from '../../setup/db.js'
+import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { createCustomer } from '../../setup/factories.js'
 
 vi.mock('../../../utils/logger.js', () => ({ default: { info: vi.fn(), error: vi.fn() } }))
@@ -17,11 +16,6 @@ let customers = []
 beforeAll(async () => {
   customers.push(await createCustomer({ name: 'Alice', email: 'alice@test.com' }))
   customers.push(await createCustomer({ name: 'Bob', email: 'bob@test.com' }))
-})
-
-afterAll(async () => {
-  await cleanupAll()
-  await closePool()
 })
 
 describe('getAllCustomers', () => {

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
-import { getPool, cleanupAll, closePool } from '../../setup/db.js'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { getPool } from '../../setup/db.js'
 
 vi.mock('../../../utils/logger.js', () => ({ default: { info: vi.fn(), error: vi.fn() } }))
 
@@ -7,8 +7,6 @@ import {
   getAllAds, createAd, updateAd, deleteAd,
   getActiveAds, recordClick, getAdClicks,
 } from '../../../controllers/ads.Controller.js'
-
-const pool = getPool
 
 function mockReqRes(overrides = {}) {
   const req = { body: {}, params: {}, query: {}, cookies: {}, ...overrides }
@@ -35,11 +33,6 @@ afterEach(async () => {
   const p = getPool()
   await p.query('DELETE FROM ad_clicks')
   await p.query('DELETE FROM ads')
-})
-
-afterAll(async () => {
-  await cleanupAll()
-  await closePool()
 })
 
 describe('getAllAds', () => {

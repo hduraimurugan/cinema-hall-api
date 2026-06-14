@@ -1,12 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
-import { getPool, cleanupAll, closePool } from '../../setup/db.js'
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
+import { getPool } from '../../setup/db.js'
 import { createAdmin, createHall } from '../../setup/factories.js'
 
 vi.mock('../../../utils/logger.js', () => ({ default: { info: vi.fn(), error: vi.fn() } }))
 
 import { createScreen, editScreen, deleteScreen, getMyScreens } from '../../../controllers/screens.Controller.js'
 
-const pool = getPool
 let admin, hall
 
 function mockReqRes(overrides = {}) {
@@ -23,11 +22,6 @@ beforeAll(async () => {
 afterEach(async () => {
   const p = getPool()
   await p.query('DELETE FROM screens')
-})
-
-afterAll(async () => {
-  await cleanupAll()
-  await closePool()
 })
 
 const validScreen = {

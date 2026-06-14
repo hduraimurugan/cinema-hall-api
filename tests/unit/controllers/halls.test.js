@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
-import { getPool, cleanupAll, closePool } from '../../setup/db.js'
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
+import { getPool } from '../../setup/db.js'
 import { createAdmin, createHall as createHallFactory } from '../../setup/factories.js'
 
 vi.mock('../../../utils/logger.js', () => ({ default: { info: vi.fn(), error: vi.fn() } }))
@@ -21,11 +21,6 @@ beforeAll(async () => {
 afterEach(async () => {
   const p = getPool()
   await p.query(`DELETE FROM cinema_hall WHERE admin_id = $1`, [admin.id])
-})
-
-afterAll(async () => {
-  await cleanupAll()
-  await closePool()
 })
 
 describe('getMyHalls', () => {

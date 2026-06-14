@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { getPool, cleanupAll, closePool } from '../../setup/db.js'
+import { describe, it, expect, beforeAll, vi } from 'vitest'
+import { getPool } from '../../setup/db.js'
 import { createSetting } from '../../setup/factories.js'
 
 vi.mock('../../../utils/logger.js', () => ({ default: { info: vi.fn(), error: vi.fn() } }))
@@ -16,11 +16,6 @@ beforeAll(async () => {
   await getPool()
   await createSetting('convenience_fee_per_ticket', '15')
   await createSetting('gst_percentage', '18')
-})
-
-afterAll(async () => {
-  await cleanupAll()
-  await closePool()
 })
 
 describe('getSettings', () => {

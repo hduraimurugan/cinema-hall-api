@@ -29,15 +29,17 @@ export async function createHall(adminId, overrides = {}) {
   const defaults = {
     name: 'Test Cinema Hall',
     location: 'Test City',
+    district: 'Test District',
+    state: 'Test State',
     is_active: true,
   }
   const data = { ...defaults, ...overrides }
 
   const result = await query(
-    `INSERT INTO cinema_hall (admin_id, name, location, is_active)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO cinema_hall (admin_id, name, location, district, state, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [adminId, data.name, data.location, data.is_active]
+    [adminId, data.name, data.location, data.district, data.state, data.is_active]
   )
   return result.rows[0]
 }
@@ -67,14 +69,15 @@ export async function createMovie(overrides = {}) {
     duration: 120,
     poster_url: 'https://example.com/poster.jpg',
     rating: '7.5',
+    status: 'now_showing',
   }
   const data = { ...defaults, ...overrides }
 
   const result = await query(
-    `INSERT INTO movies (title, language, genre, duration, poster_url, rating)
-     VALUES ($1, $2::text[], $3::text[], $4, $5, $6)
+    `INSERT INTO movies (title, language, genre, duration, poster_url, rating, status)
+     VALUES ($1, $2::text[], $3::text[], $4, $5, $6, $7)
      RETURNING *`,
-    [data.title, data.language, data.genre, data.duration, data.poster_url, data.rating]
+    [data.title, data.language, data.genre, data.duration, data.poster_url, data.rating, data.status]
   )
   return result.rows[0]
 }
@@ -168,22 +171,22 @@ export async function createSetting(key, value) {
 export async function createOffer(hallId, adminId, overrides = {}) {
   const defaults = {
     code: `OFFER${Date.now()}`,
+    title: 'Test Offer',
     discount_type: 'percentage',
     discount_value: 10,
-    min_amount: 100,
-    max_discount: 50,
-    valid_from: new Date(Date.now() - 86400000).toISOString(),
+    max_discount_amount: 50,
+    min_booking_amount: 100,
     valid_until: new Date(Date.now() + 86400000 * 30).toISOString(),
-    usage_limit: 100,
     is_active: true,
+    scope: 'global',
   }
   const data = { ...defaults, ...overrides }
 
   const result = await query(
-    `INSERT INTO offers (cinema_hall_id, created_by, code, discount_type, discount_value, min_amount, max_discount, valid_from, valid_until, usage_limit, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `INSERT INTO offers (cinema_hall_id, created_by, code, title, discount_type, discount_value, max_discount_amount, min_booking_amount, valid_until, is_active, scope)
+     VALUES ($1, $2, UPPER($3), $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING *`,
-    [hallId, adminId, data.code, data.discount_type, data.discount_value, data.min_amount, data.max_discount, data.valid_from, data.valid_until, data.usage_limit, data.is_active]
+    [hallId, adminId, data.code, data.title, data.discount_type, data.discount_value, data.max_discount_amount, data.min_booking_amount, data.valid_until, data.is_active, data.scope]
   )
   return result.rows[0]
 }

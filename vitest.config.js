@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    fileParallelism: false,
     globalSetup: ['./tests/setup/globalSetup.js'],
     globalTeardown: ['./tests/setup/globalTeardown.js'],
     setupFiles: ['./tests/setup/env.js'],

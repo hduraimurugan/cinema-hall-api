@@ -257,7 +257,8 @@ CREATE TABLE IF NOT EXISTS otp_verifications (
   otp_attempts INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL,
-  CONSTRAINT fk_customer_email FOREIGN KEY (email) REFERENCES customers(email) ON DELETE CASCADE
+  CONSTRAINT fk_customer_email FOREIGN KEY (email) REFERENCES customers(email) ON DELETE CASCADE,
+  UNIQUE (email, type)
 );
 
 -- ============================
