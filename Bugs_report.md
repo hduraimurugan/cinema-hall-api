@@ -53,7 +53,7 @@
 **Impact**: A customer sees a generic "Failed to hold seats" error instead of "Seat unavailable" when racing for a new seat.  
 **Recommended Fix**: Add `ON CONFLICT (show_id, seat_id) DO NOTHING` to the INSERT, then re-check `rowCount` and return 409 gracefully.  
 **Severity**: Medium-High (race condition, UX impact)  
-**Status**: 🔴 Open (documented, not fixed)
+**Status**: ✅ Fixed
 
 ### HIGH-2: `movies.Controller.js` Missing `logger` Import
 
@@ -70,7 +70,7 @@
 **Discovered**: Phase 4D — code review  
 **Root Cause**: `pool.connect()` is called outside a try-catch block. If the database connection fails, the error is an unhandled promise rejection.  
 **Impact**: A DB connection failure in this middleware crashes the process or causes an unhandled rejection.  
-**Status**: 🔴 Open
+**Status**: ✅ Fixed
 
 ---
 
@@ -151,14 +151,12 @@
 | Severity | Open | Fixed | Total |
 |----------|------|-------|-------|
 | 🔴 Critical | 0 | 4 | 4 |
-| 🟠 High | 2 | 1 | 3 |
+| 🟠 High | 0 | 3 | 3 |
 | 🟡 Medium | 2 | 0 | 2 |
 | 🟢 Low | 0 | 8 | 8 |
-| **Total** | **4** | **13** | **17** |
+| **Total** | **2** | **15** | **17** |
 
 ### Open Items Requiring Attention
 
-1. **HIGH-1**: `holdSeats` race condition on non-existent seats — add `ON CONFLICT DO NOTHING` for graceful degradation
-2. **HIGH-3**: `requireActiveHall` missing try-catch — wrap `pool.connect()` in try-catch
-3. **MED-1**: Inconsistent `res.json()` status pattern — add explicit `res.status(200)` throughout
-4. **MED-2**: Auth test password mutation — use separate admin per test or reset password in `afterEach`
+1. **MED-1**: Inconsistent `res.json()` status pattern — add explicit `res.status(200)` throughout
+2. **MED-2**: Auth test password mutation — use separate admin per test or reset password in `afterEach`

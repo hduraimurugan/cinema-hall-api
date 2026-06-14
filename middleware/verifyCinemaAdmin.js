@@ -198,8 +198,9 @@ export const requireActiveHall = async (req, res, next) => {
     return res.status(400).json({ message: 'X-Hall-Id header is required' });
   }
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     const { rows } = await client.query(
       `SELECT id FROM cinema_hall WHERE id = $1 AND admin_id = $2 AND is_active = TRUE`,
       [hallId, req.admin.id]
@@ -215,7 +216,9 @@ export const requireActiveHall = async (req, res, next) => {
     logger.error('❌ requireActiveHall error:', { message: err.message });
     return res.status(500).json({ message: 'Internal error verifying hall access' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 };
 
