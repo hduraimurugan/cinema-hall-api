@@ -1,4 +1,5 @@
 import pool from '../db.js'
+import logger from '../utils/logger.js'
 
 // 🔸 Add a new movie (SuperAdmin only)
 export const addMovie = async (req, res) => {
@@ -15,7 +16,8 @@ export const addMovie = async (req, res) => {
         tmdb_id = null,
         cast = [],
         vote_average = null,
-        vote_count = null
+        vote_count = null,
+        backdrop_path = null
     } = req.body
 
     const client = await pool.connect()
@@ -35,8 +37,9 @@ export const addMovie = async (req, res) => {
         tmdb_id,
         "cast",
         vote_average,
-        vote_count
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        vote_count,
+        backdrop_path
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       RETURNING *
     `
         const values = [
@@ -52,7 +55,8 @@ export const addMovie = async (req, res) => {
             tmdb_id,
             JSON.stringify(cast),
             vote_average,
-            vote_count
+            vote_count,
+            backdrop_path
         ]
 
         const result = await client.query(insertQuery, values)
@@ -83,7 +87,8 @@ export const editMovie = async (req, res) => {
         'tmdb_id',
         'cast',
         'vote_average',
-        'vote_count'
+        'vote_count',
+        'backdrop_path'
     ]
 
     const fieldsToUpdate = Object.keys(updateFields).filter(field =>

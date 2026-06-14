@@ -19,6 +19,7 @@ export const getMoviesByLocation = async (req, res) => {
                 m.title,
                 m.description,
                 m.poster_url,
+                m.backdrop_path,
                 m.trailer_url,
                 m.duration_mins,
                 m.genre,
@@ -78,6 +79,7 @@ export const getMoviesByState = async (req, res) => {
                 m.title,
                 m.description,
                 m.poster_url,
+                m.backdrop_path,
                 m.trailer_url,
                 m.duration_mins,
                 m.genre,
@@ -426,7 +428,7 @@ export const getCinemaHallsWithShows = async (req, res) => {
         const query = `
             SELECT
                 ch.id AS hall_id, ch.name AS hall_name, ch.location, ch.district, ch.state, ch.latitude, ch.longitude,
-                m.id AS movie_id, m.title, m.poster_url, m.duration_mins, m.genre, m.language,
+                m.id AS movie_id, m.title, m.poster_url, m.backdrop_path, m.duration_mins, m.genre, m.language,
                 sc.id AS screen_id, sc.name AS screen_name,
                 sc.premium_price, sc.gold_price, sc.silver_price,
                 sh.id AS show_id, sh.start_time, sh.end_time,
@@ -469,6 +471,7 @@ export const getCinemaHallsWithShows = async (req, res) => {
                     movie_id: row.movie_id,
                     title: row.title,
                     poster_url: row.poster_url,
+                    backdrop_path: row.backdrop_path,
                     duration_mins: row.duration_mins,
                     genre: row.genre,
                     language: row.language,

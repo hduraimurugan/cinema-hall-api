@@ -47,6 +47,7 @@ CREATE TABLE movies (
   title TEXT NOT NULL,
   description TEXT,
   poster_url TEXT,
+  backdrop_path TEXT,
   trailer_url TEXT,
   duration_mins INT,
   genre TEXT,
