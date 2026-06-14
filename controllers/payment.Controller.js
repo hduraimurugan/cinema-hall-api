@@ -256,7 +256,7 @@ export const verifyPayment = async (req, res) => {
                 VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9)
                 ON CONFLICT (payment_id) DO NOTHING
                 RETURNING *
-            `, [order.show_id, customer_id, seats, order.amount, razorpay_payment_id,
+            `, [order.show_id, customer_id, JSON.stringify(seats), order.amount, razorpay_payment_id,
                 order.convenience_fee || 0, order.gst_amount || 0,
                 order.offer_code || null, order.discount_amount || 0]);
 

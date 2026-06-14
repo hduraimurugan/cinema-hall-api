@@ -30,14 +30,28 @@ afterEach(async () => {
 })
 
 describe('getRefunds', () => {
-  // Note: getRefunds controller has a SQL bug — it uses ANY(b.seats) on a JSONB
-  // column, which PostgreSQL rejects. Tests verify the 500 error response until
-  // the source query is fixed.
-
-  it('returns 500 due to broken JSONB subquery', async () => {
+  it('returns empty refund list', async () => {
     const { req, res } = mockReqRes({ currentHallId: hall.id, query: { page: 1 } })
     await getRefunds(req, res)
-    expect(res.status).toHaveBeenCalledWith(500)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.json.mock.calls[0][0]).toHaveProperty('refunds')
+    expect(res.json.mock.calls[0][0].refunds).toEqual([])
+    expect(res.json.mock.calls[0][0].total).toBe(0)
+  })
+
+  it('returns refunds with filters', async () => {
+    const p = getPool()
+    await p.query(
+      `INSERT INTO refunds (booking_id, payment_id, amount, refund_status, initiated_at)
+       VALUES ($1, 'pay_test', 400, 'initiated', NOW())`,
+      [booking.id]
+    )
+
+    const { req, res } = mockReqRes({ currentHallId: hall.id, query: { page: 1, status: 'initiated' } })
+    await getRefunds(req, res)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.json.mock.calls[0][0].refunds.length).toBe(1)
+    expect(res.json.mock.calls[0][0].total).toBe(1)
   })
 })
 

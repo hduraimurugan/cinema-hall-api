@@ -186,11 +186,11 @@ Key: Many controllers use `res.json(...)` without explicit `res.status(200)`. Te
 | 1 | Infrastructure (vitest, DB, schema, factories, mocks) | — | ✅ Done |
 | 2 | Utils (hashToken 5, passwordPolicy 12, oauthRateLimit 6) | **23/23** | ✅ Passing |
 | 3 | Middleware (verifyCinemaAdmin — 8 exports) | **30/30** | ✅ Passing |
-| 4A | Simple controllers (settings 7, halls 10, ads 11, customers 5, screens 7, refund 5) | **45/46** | ✅ Passing (1 documented bug) |
-| 4B | Medium controllers (movies 17, offers 13, userMovies 18, dashboard 7, tmdb 10, otp 7) | **76/76** | ✅ Passing |
+| 4A | Simple controllers (settings 7, halls 10, ads 11, customers 5, screens 7, refund 7) | **47/47** | ✅ Passing |
+| 4B | Medium controllers (movies 19, offers 13, userMovies 18, dashboard 7, tmdb 10, otp 9) | **76/76** | ✅ Passing |
 | 4C | Auth controllers (auth 45, customerAuth 23) | **68/68** | ✅ Passing |
-| 4D | Complex controllers (booking, shows, payment) | — | ❌ Not started |
-| 5 | Integration (full request-response via Supertest) | — | ❌ Not started |
+| 4D | Complex controllers (booking 16, shows 19, payment 10) | **45/45** | ✅ Passing |
+| 5 | Integration (full request-response via Supertest) | **7/7** | ✅ Passing |
 | 6 | Edge case & concurrency | — | ❌ Not started |
 | 7 | Coverage tuning | — | ❌ Not started |
 
@@ -208,7 +208,7 @@ Key: Many controllers use `res.json(...)` without explicit `res.status(200)`. Te
 |------|-------|-------------|
 | `verifyCinemaAdmin.test.js` | 30 | All 8 exported middleware functions (auth, roles, hall access, etc.) |
 
-### Phase 4A — Simple Controllers (45/46)
+### Phase 4A — Simple Controllers (47/47)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -217,9 +217,7 @@ Key: Many controllers use `res.json(...)` without explicit `res.status(200)`. Te
 | `ads.test.js` | 11 | `getAllAds` (2), `createAd` (2), `updateAd` (2), `deleteAd` (1), `getActiveAds` (2), `recordClick` (1), `getAdClicks` (1) |
 | `customers.test.js` | 5 | `getAllCustomers` (3), `getCustomerDetails` (2) |
 | `screens.test.js` | 7 | `createScreen` (1), `getMyScreens` (1), `editScreen` (3), `deleteScreen` (2) |
-| `refund.test.js` | 5 | `getRefunds` (1), `getRefundByBooking` (2), `manuallySettleRefund` (3) |
-
-One test expects 500 status due to a **known controller SQL bug**: `getRefunds` uses `ANY(b.seats)` on a JSONB column (`bookings.seats`), which PostgreSQL rejects. Tests verify the error response until the source query is fixed.
+| `refund.test.js` | 7 | `getRefunds` (2 — empty list + filter), `getRefundByBooking` (2), `manuallySettleRefund` (3) |
 
 ### Phase 4B — Medium Controllers (76/76)
 
@@ -247,13 +245,69 @@ Auth test strategy:
 - Each `afterEach` cleans auth tables (`admin_security_logs`, `admin_password_reset_tokens`, `admin_verification_tokens`, `admin_sessions`)
 - OTP-based password reset tested by inserting known SHA-256 hashed OTPs
 
+### Phase 4D — Complex Controllers (45/45)
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `booking.test.js` | 16 | `holdSeats` (4), `confirmBooking` (4), `releaseSeats` (1), `getMyBookings` (2), `verifyBookingById` (3), `getBookingDetails` (2) |
+| `shows.test.js` | 19 | `createShow` (2), `createMultipleShows` (2), `editShow` (2), `deleteShow` (1), `deleteMultipleShows` (2), `getShowsByDate` (1), `getShowById` (2), `updateShowBookingStatus` (3), `cancelShow` (2), `bulkOpenBooking` (1), `getShowBookingCount` (1) |
+| `payment.test.js` | 10 | `createOrder` (4 — success, no-hold, dedup, offer), `verifyPayment` (2 — success, bad sig), `getPaymentOrders` (2), `handleWebhook` (2 — bad sig, captured event) |
+
+Key details:
+- All external services mocked: `razorpay` (orders create, payments refund), `crypto` (native, used for HMAC), `validateOfferCode`
+- Settings `convenience_fee_per_ticket` and `gst_percentage` seeded in `beforeAll` for pricing tests
+- `cancelShow` test verifies both the mock refund call AND the DB refund record
+- Webhook tests pass a `Buffer` as `req.body` to match `express.raw()` middleware
+
+#### Source Bugs Fixed in Phase 4D
+
+| Bug | Location | Fix |
+|-----|----------|-----|
+| `ANY(b.seats)` on JSONB | booking & refund controllers | Replaced with `IN (SELECT jsonb_array_elements_text(b.seats))` |
+| JS array passed as JSONB param | `payment.Controller.js` `verifyPayment` | Added `JSON.stringify(seats)` for the bookings INSERT |
+| Missing `payment_signature` column | `schema.sql` `payment_orders` table | Added `payment_signature TEXT` column |
+| Non-unique index on `bookings(payment_id)` | `schema.sql` | Changed to `CREATE UNIQUE INDEX` for `ON CONFLICT (payment_id)` |
+
+### Phase 5 — Integration (7/7)
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `api.test.js` | 7 | Public routes (ping, root, 404), protected routes with mocked auth (halls, auth/me, settings), error handling (/debug-sentry) |
+
+Integration test strategy:
+- Uses real test DB via `tests/setup/db.js`
+- Middleware (`verifyCinemaAdmin.js`) mocked at module level via `vi.mock` to inject test admin/customer data without token verification
+- All external services mocked: Razorpay, Sentry, logger
+- `server.js` auto-listens on `PORT=0` (random OS-assigned port) — Supertest creates its own server, so the `app.listen` call is harmless
+- Admin + hall seeded in `beforeAll` via factories for protected route tests
+- Halls test creates its own admin + halls, cleans up, restores original admin/hall for subsequent tests
+
+#### Key Mocking Pattern (Integration)
+
+Middleware is mocked BEFORE importing `app` from `server.js`:
+
+```js
+let currentAdminId = null
+
+vi.mock('../../middleware/verifyCinemaAdmin.js', () => ({
+  verifyCinemaAdminAccessToken: (req, res, next) => {
+    req.admin = { id: currentAdminId || '00000000-0000-0000-0000-000000000000', role: 'admin' }
+    next()
+  },
+  // ...
+}))
+
+import app from '../../server.js'
+```
+
+This pattern allows tests to set `currentAdminId` to a real DB-inserted admin UUID before hitting protected routes.
+
 ### Known Issues
 
-1. **Controller SQL bug**: `getRefunds` — `ANY(b.seats)` on JSONB column fails. Source needs `jsonb_array_elements_text()`.
-2. **`requireActiveHall` middleware**: `pool.connect()` is called outside try-catch — unhandled rejection on connection failure.
-3. **Controller res.status pattern**: Many controllers call `res.json()` without `res.status(200)`, relying on Express default 200. Tests compensate by checking `res.json` body instead.
-4. **`movies.Controller.js` missing `logger` import**: `logger.error()` in catch blocks throws `ReferenceError` before `res.status(500)` can be called.
-5. **Auth test password mutation**: Tests that modify the shared admin's password (e.g., `changePassword` success test) mutate state for subsequent tests in the same describe block. Mitigated by ordering tests so error-path tests run after success-path tests.
+1. **`requireActiveHall` middleware**: `pool.connect()` is called outside try-catch — unhandled rejection on connection failure.
+2. **Controller res.status pattern**: Many controllers call `res.json()` without `res.status(200)`, relying on Express default 200. Tests compensate by checking `res.json` body instead.
+3. **`movies.Controller.js` missing `logger` import**: `logger.error()` in catch blocks throws `ReferenceError` before `res.status(500)` can be called.
+4. **Auth test password mutation**: Tests that modify the shared admin's password (e.g., `changePassword` success test) mutate state for subsequent tests in the same describe block. Mitigated by ordering tests so error-path tests run after success-path tests.
 
 ### Fixes Applied
 
@@ -268,12 +322,15 @@ Auth test strategy:
 | UUID format in tests | Replaced `'other-id'` with `'00000000-...'` UUIDs |
 | Import naming conflicts | Renamed `createHall`/`createAd` imports to avoid shadowing factories |
 | `res.status(200)` assertions | Removed for controllers that call `res.json()` without explicit status |
-| Dashboard `ANY(b.seats)` on JSONB | Changed to `b.seats ? (s->>'id')` for JSONB compatibility |
+| `ANY(b.seats)` on JSONB (dashboard + booking + refund) | Changed to `IN (SELECT jsonb_array_elements_text(b.seats))` |
+| JS array → JSONB in `verifyPayment` | `JSON.stringify(seats)` before passing to pg |
 | Factory `createMovie` missing `status` | Added `status` column to INSERT |
 | Factory columns mismatched | Added `district`/`state` to `createHall`; fixed `createOffer` column names to match schema |
 | `otp_verifications` missing UNIQUE constraint | Added `UNIQUE (email, type)` — required by `ON CONFLICT (email, type)` |
 | Factory `createAdmin` missing `email_verified` | Added `email_verified` and `account_locked_until` columns to INSERT |
 | Factory `createAdmin` missing `auth_providers` | Added `auth_providers` column to INSERT for provider link/unlink tests |
+| Missing `payment_signature` column | Added to `payment_orders` table in `schema.sql` |
+| Non-unique index on `bookings(payment_id)` | Replaced with `CREATE UNIQUE INDEX` for `ON CONFLICT` support |
 
 ## Adding New Tests
 

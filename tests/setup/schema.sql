@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS payment_orders (
   amount NUMERIC(10, 2) NOT NULL,
   status TEXT NOT NULL DEFAULT 'created',
   payment_id TEXT,
+  payment_signature TEXT,
   convenience_fee DECIMAL(10, 2) NOT NULL DEFAULT 0,
   gst_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
   offer_code VARCHAR(50),
@@ -452,7 +453,8 @@ ALTER TABLE shows ADD CONSTRAINT shows_status_check
 -- ============================
 -- BOOKING CONSTRAINTS
 -- ============================
-CREATE INDEX IF NOT EXISTS idx_bookings_payment_id ON bookings(payment_id);
+DROP INDEX IF EXISTS idx_bookings_payment_id;
+CREATE UNIQUE INDEX idx_bookings_payment_id ON bookings(payment_id);
 
 -- ============================
 -- PAYMENT ORDERS COMPOSITE INDEX
