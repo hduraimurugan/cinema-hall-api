@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "npx nodemon server.js",
-    "start": "node --import=@sentry/node/preload server.js"
+    "start": "node --import=@sentry/node/preload server.js",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [],
   "author": "",
@@ -27,5 +31,10 @@
     "postgres": "^3.4.7",
     "razorpay": "^2.9.6",
     "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.8",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.8"
   }
 }

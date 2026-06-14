@@ -1,0 +1,11 @@
+process.env.NODE_ENV = 'test'
+process.env.PORT = '0'
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret-key-for-testing'
+process.env.REFRESH_SECRET = process.env.REFRESH_SECRET || 'test-refresh-secret-key-for-testing'
+process.env.TMDB_API_KEY = 'test-tmdb-api-key'
+process.env.CRON_SECRET = 'test-cron-secret'
+process.env.RAZORPAY_KEY_ID = 'rzp_test_testkey'
+process.env.RAZORPAY_KEY_SECRET = 'test-razorpay-secret'
+process.env.RAZORPAY_WEBHOOK_SECRET = 'test-webhook-secret'
+
+process.env.DATABASE_URL = 'postgresql://postgres:Durai@1234@localhost:5432/cinema_hall_test'
