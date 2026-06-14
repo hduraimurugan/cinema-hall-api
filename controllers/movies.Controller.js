@@ -255,6 +255,12 @@ export const getMovieById = async (req, res) => {
             return res.status(400).json({ message: "Movie ID is required" });
         }
 
+        // Validate that ID is a valid UUID to prevent Postgres driver errors
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(id)) {
+            return res.status(400).json({ message: "Invalid Movie ID format" });
+        }
+
         const query = `
             SELECT *
             FROM movies
