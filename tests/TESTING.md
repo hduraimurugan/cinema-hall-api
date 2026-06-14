@@ -187,8 +187,8 @@ Key: Many controllers use `res.json(...)` without explicit `res.status(200)`. Te
 | 2 | Utils (hashToken 5, passwordPolicy 12, oauthRateLimit 6) | **23/23** | ✅ Passing |
 | 3 | Middleware (verifyCinemaAdmin — 8 exports) | **30/30** | ✅ Passing |
 | 4A | Simple controllers (settings 7, halls 10, ads 11, customers 5, screens 7, refund 5) | **45/46** | ✅ Passing (1 documented bug) |
-| 4B | Medium controllers (movies, offers, userMovies, dashboard, tmdb, otp) | — | ❌ Not started |
-| 4C | Auth controllers (authRoutes, customerAuth) | — | ❌ Not started |
+| 4B | Medium controllers (movies 17, offers 13, userMovies 18, dashboard 7, tmdb 10, otp 7) | **76/76** | ✅ Passing |
+| 4C | Auth controllers (auth 45, customerAuth 23) | **68/68** | ✅ Passing |
 | 4D | Complex controllers (booking, shows, payment) | — | ❌ Not started |
 | 5 | Integration (full request-response via Supertest) | — | ❌ Not started |
 | 6 | Edge case & concurrency | — | ❌ Not started |
@@ -221,12 +221,39 @@ Key: Many controllers use `res.json(...)` without explicit `res.status(200)`. Te
 
 One test expects 500 status due to a **known controller SQL bug**: `getRefunds` uses `ANY(b.seats)` on a JSONB column (`bookings.seats`), which PostgreSQL rejects. Tests verify the error response until the source query is fixed.
 
+### Phase 4B — Medium Controllers (76/76)
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `movies.test.js` | 19 | `getAllMovies` (3), `getMovieById` (2), `createMovie` (2), `updateMovie` (2), `deleteMovie` (1), `bulkCreateMovies` (3), `bulkDeleteMovies` (2), `getMovieShows` (2), server error paths (2) |
+| `offers.test.js` | 13 | `getAllCinemaHalls` (1), `getAllOffers` (1), `createOffer` (5), `getOfferById` (2), `updateOffer` (2), `deleteOffer` (2) |
+| `userMovies.test.js` | 18 | End-user movie browsing: filtering, sorting, search, pagination, upcoming/now-showing |
+| `dashboard.test.js` | 7 | `getAdminDashboard`, `getSalesAnalytics`, `getBookingTrends`, `getMovieStats`, `getHallOccupancy`, `getRevenueSummary`, `getAdminNotifications` |
+| `tmdb.test.js` | 10 | TMDB proxy endpoints: search movies, popular, trending, details, credits, recommendations |
+| `otp.test.js` | 9 | `sendOtp`, `verifyOtp` — rate limiting, expiration, attempts, verified OTP reuse + server error path |
+
+### Phase 4C — Auth Controllers (68/68)
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `auth.test.js` | 45 | Admin auth: register, login, email verification, password reset, OAuth (Google/GitHub), provider linking, security info, session management, hall updates |
+| `customerAuth.test.js` | 23 | Customer auth: register, login, profile updates, password change, OTP-based password reset, Google OAuth, set password |
+
+Auth test strategy:
+- Real DB for SQL queries (same pattern as Phase 4A/B)
+- Mocked: `jsonwebtoken`, `generateTokenAndSetCookie`, `oauthProviders`, `oauthRateLimit`, email functions, `logger`
+- Real: `bcrypt`, `hashToken`, `validatePassword`, `crypto`
+- Dedicated shared admin/customer created in `beforeAll` for login/refresh/getMe tests
+- Each `afterEach` cleans auth tables (`admin_security_logs`, `admin_password_reset_tokens`, `admin_verification_tokens`, `admin_sessions`)
+- OTP-based password reset tested by inserting known SHA-256 hashed OTPs
+
 ### Known Issues
 
 1. **Controller SQL bug**: `getRefunds` — `ANY(b.seats)` on JSONB column fails. Source needs `jsonb_array_elements_text()`.
-2. **Cross-file isolation**: `cleanupAll()` + `closePool()` in each controller test file's `afterAll` can cause FK violations in subsequent test files when run sequentially. Each file passes in isolation. Root cause under investigation.
-3. **`requireActiveHall` middleware**: `pool.connect()` is called outside try-catch — unhandled rejection on connection failure.
-4. **Controller res.status pattern**: Many controllers call `res.json()` without `res.status(200)`, relying on Express default 200. Tests compensate by checking `res.json` body instead.
+2. **`requireActiveHall` middleware**: `pool.connect()` is called outside try-catch — unhandled rejection on connection failure.
+3. **Controller res.status pattern**: Many controllers call `res.json()` without `res.status(200)`, relying on Express default 200. Tests compensate by checking `res.json` body instead.
+4. **`movies.Controller.js` missing `logger` import**: `logger.error()` in catch blocks throws `ReferenceError` before `res.status(500)` can be called.
+5. **Auth test password mutation**: Tests that modify the shared admin's password (e.g., `changePassword` success test) mutate state for subsequent tests in the same describe block. Mitigated by ordering tests so error-path tests run after success-path tests.
 
 ### Fixes Applied
 
@@ -241,6 +268,12 @@ One test expects 500 status due to a **known controller SQL bug**: `getRefunds` 
 | UUID format in tests | Replaced `'other-id'` with `'00000000-...'` UUIDs |
 | Import naming conflicts | Renamed `createHall`/`createAd` imports to avoid shadowing factories |
 | `res.status(200)` assertions | Removed for controllers that call `res.json()` without explicit status |
+| Dashboard `ANY(b.seats)` on JSONB | Changed to `b.seats ? (s->>'id')` for JSONB compatibility |
+| Factory `createMovie` missing `status` | Added `status` column to INSERT |
+| Factory columns mismatched | Added `district`/`state` to `createHall`; fixed `createOffer` column names to match schema |
+| `otp_verifications` missing UNIQUE constraint | Added `UNIQUE (email, type)` — required by `ON CONFLICT (email, type)` |
+| Factory `createAdmin` missing `email_verified` | Added `email_verified` and `account_locked_until` columns to INSERT |
+| Factory `createAdmin` missing `auth_providers` | Added `auth_providers` column to INSERT for provider link/unlink tests |
 
 ## Adding New Tests
 

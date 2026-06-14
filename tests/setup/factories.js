@@ -8,15 +8,18 @@ export async function createAdmin(overrides = {}) {
     password: await bcrypt.hash('TestPass123!', 12),
     role: 'admin',
     is_verified: true,
+    email_verified: true,
     is_active: true,
+    auth_providers: ['local'],
+    account_locked_until: null,
   }
   const data = { ...defaults, ...overrides }
 
   const result = await query(
-    `INSERT INTO cinema_admin_user (name, email, password, role, is_verified, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO cinema_admin_user (name, email, password, role, is_verified, email_verified, is_active, auth_providers, account_locked_until)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
-    [data.name, data.email, data.password, data.role, data.is_verified, data.is_active]
+    [data.name, data.email, data.password, data.role, data.is_verified, data.email_verified, data.is_active, data.auth_providers, data.account_locked_until]
   )
   return result.rows[0]
 }
