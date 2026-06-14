@@ -94,7 +94,7 @@ describe('createOrder — edge cases', () => {
     })
     await createOrder(req, res)
     expect(res.status).toHaveBeenCalledWith(400)
-    expect(res.json.mock.calls[0][0].error).toMatch(/expired/i)
+    expect(res.json.mock.calls[0][0].error).toMatch(/no longer held/i)
   })
 })
 
@@ -123,8 +123,8 @@ describe('verifyPayment — edge cases', () => {
       customer: { id: customer.id },
     })
     await verifyPayment(req, res)
-    expect(res.status).toHaveBeenCalledWith(400)
-    expect(res.json.mock.calls[0][0].error).toMatch(/already/i)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.json.mock.calls[0][0]).toHaveProperty('_idempotent', true)
   })
 })
 

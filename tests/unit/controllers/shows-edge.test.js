@@ -194,11 +194,20 @@ describe('updateShowBookingStatus — edge cases', () => {
 
 describe('getShowById — edge cases', () => {
   it('returns expired held seats as available', async () => {
-    const s = await createShow(screen.id, movie.id)
+    const cust = await createCustomer()
+    const edgeScreen = await createScreen(hall.id, {
+      name: 'Expiry Screen',
+      layout: JSON.stringify({
+        rows: 2, cols: 3, seats: [
+          { id: 'EX1', row: 'A', column: 1, type: 'standard' },
+        ],
+      }),
+    })
+    const s = await createShow(edgeScreen.id, movie.id)
     await query(
       `INSERT INTO show_booked_seats (show_id, seat_id, seat_label, row_label, column_number, status, held_by, hold_expires_at)
-       VALUES ($1, 'EX1', 'EX1', '', 0, 'HELD', '00000000-0000-0000-0000-000000000000', now() - interval '1 minute')`,
-      [s.id]
+       VALUES ($1, 'EX1', 'EX1', '', 0, 'HELD', $2, now() - interval '1 minute')`,
+      [s.id, cust.id]
     )
     const { req, res } = mockReqRes({ params: { id: s.id } })
     await getShowById(req, res)

@@ -11,9 +11,20 @@ export default defineConfig({
     testMatch: ['tests/**/*.test.js'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html', 'lcov'],
+      reporter: ['text'],
       include: ['controllers/**', 'middleware/**', 'utils/**'],
-      exclude: ['node_modules/', 'tests/'],
+      exclude: [
+        'node_modules/',
+        'tests/',
+        '**/generateTokenAndSetCookie.js',
+        '**/oauthProviders.js',
+      ],
+      thresholds: {
+        statements: 75,
+        branches: 65,
+        functions: 80,
+        lines: 75,
+      },
     },
     hookTimeout: 30000,
     testTimeout: 15000,

@@ -8,6 +8,8 @@ Automated test suite for the cinema-hall-api backend (Express 5 + PostgreSQL ESM
 **HTTP testing**: [Supertest](https://github.com/ladjs/supertest)  
 **Coverage**: [@vitest/coverage-v8](https://www.npmjs.com/package/@vitest/coverage-v8)
 
+**Status**: 352 tests across 30 test files — all passing.
+
 ## Test Strategy
 
 | Layer | Approach | DB |
@@ -191,8 +193,8 @@ Key: Many controllers use `res.json(...)` without explicit `res.status(200)`. Te
 | 4C | Auth controllers (auth 45, customerAuth 23) | **68/68** | ✅ Passing |
 | 4D | Complex controllers (booking 16, shows 19, payment 10) | **45/45** | ✅ Passing |
 | 5 | Integration (full request-response via Supertest) | **7/7** | ✅ Passing |
-| 6 | Edge case & concurrency | — | ❌ Not started |
-| 7 | Coverage tuning | — | ❌ Not started |
+| 6 | Edge case & concurrency | **29/29** | ✅ Passing |
+| 7 | Coverage tuning (24 new tests + config thresholds) | **77.5% stmts ≥75 / 69.4% branch ≥65 / 86.8% funcs ≥80 / 78.7% lines ≥75** | ✅ Passing |
 
 ### Phase 2 — Utils (23/23)
 
@@ -331,6 +333,55 @@ This pattern allows tests to set `currentAdminId` to a real DB-inserted admin UU
 | Factory `createAdmin` missing `auth_providers` | Added `auth_providers` column to INSERT for provider link/unlink tests |
 | Missing `payment_signature` column | Added to `payment_orders` table in `schema.sql` |
 | Non-unique index on `bookings(payment_id)` | Replaced with `CREATE UNIQUE INDEX` for `ON CONFLICT` support |
+
+### Phase 6 — Edge Case & Concurrency (29/29)
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `booking-concurrency.test.js` | 3 | Concurrent holdSeats (same seat → 1 wins, different seats → both win), concurrent confirmBooking (same held seats → 1 wins) |
+| `booking-edge.test.js` | 7 | holdSeats: empty seats array, partial batch rollback. confirmBooking: nonexistent seat, seat not held. releaseSeats: non-held seats, wrong owner release, duplicate release idempotency |
+| `shows-edge.test.js` | 14 | createShow: invalid UUID, missing screen_id. createMultipleShows: skipped time slots. deleteShow: idempotent. deleteMultipleShows: mixed IDs. cancelShow: already ended, nonexistent. updateShowBookingStatus: invalid action, already opened, duplicate restore, non-cancelled restore. getShowById: expired held seats. getShowBookingCount: not found, zero counts |
+| `payment-edge.test.js` | 5 | createOrder: missing show_id, expired hold. verifyPayment: already-paid order idempotency. handleWebhook: unknown event type. getPaymentOrders: pagination |
+
+Concurrency test strategy:
+- Pre-insert seats as `AVAILABLE` so `FOR UPDATE` row-level locking works correctly (non-existent rows can't be locked, leading to unique violation on concurrent INSERT)
+- Use `Promise.allSettled` to fire two controller invocations simultaneously
+- Verify exactly one succeeds (200) via `FOR UPDATE` serialization + `ROLLBACK` on conflict
+- Post-assert DB state (only 1 row in `show_booked_seats` with `HELD` status) to confirm atomicity
+
+Edge case test strategy:
+- Focus on input validation boundaries, error recovery paths, and idempotency guarantees
+- Test that controllers degrade gracefully (400/404/200 as appropriate) rather than crashing on unexpected input
+- Verify `ON CONFLICT` / idempotency patterns: duplicate release returns empty array, already-paid order returns existing booking with `_idempotent: true`
+
+### Phase 7 — Coverage Tuning
+
+Coverage thresholds configured in `vitest.config.js`:
+
+| Metric | Before | After | Threshold |
+|--------|--------|-------|-----------|
+| Statements | 71.0% | **77.5%** | ≥ 75% |
+| Branches | 62.3% | **69.4%** | ≥ 65% |
+| Functions | 77.5% | **86.8%** | ≥ 80% |
+| Lines | 72.1% | **78.7%** | ≥ 75% |
+
+Improvements driven by 3 new coverage-targeted test files (24 new tests):
+
+| File | Tests | Coverage Gaps Filled |
+|------|-------|---------------------|
+| `offers-coverage.test.js` | 13 | `validateOfferCode` all 8 validation paths (unmocked), `getActiveOffers` eligibility filter, `validateOffer` endpoint errors |
+| `shows-coverage.test.js` | 6 | `bulkCancelShows` (mixed states, refunds), `bulkRestoreShows`, `updateShowStatuses` |
+| `booking-coverage.test.js` | 5 | `cleanupExpiredHolds` (with/without expired), `getCinemaHallBookings` filters, `getBookingByPaymentId` 404 |
+
+Files excluded from coverage (config-only, low test value):
+- `generateTokenAndSetCookie.js` (Express JWT cookie middleware)
+- `oauthProviders.js` (OAuth provider configuration map)
+
+### Key Finding — holdSeats Locking Gap
+
+When two concurrent transactions both see `rowCount === 0` from `SELECT ... FOR UPDATE` (seat not yet in `show_booked_seats`), PostgreSQL's `FOR UPDATE` does NOT lock a non-existent row. Both transactions proceed to INSERT, and the second hits a unique constraint violation (500 error) instead of a graceful 409 conflict. This was uncovered by the concurrency test and is a potential UX concern — the second customer sees a generic server error instead of "seat unavailable."
+
+**Recommendation**: Add `ON CONFLICT (show_id, seat_id) DO NOTHING` to the INSERT, making the second transaction's insert a no-op instead of an error. Then re-check `rowCount` and return 409 gracefully.
 
 ## Adding New Tests
 

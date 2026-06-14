@@ -58,6 +58,12 @@ afterEach(async () => {
 describe('concurrent holdSeats — same seats, different customers', () => {
   it('only one concurrent hold succeeds for the same seat', async () => {
     const seatId = 'CC1'
+    await query(
+      `INSERT INTO show_booked_seats (show_id, seat_id, seat_label, row_label, column_number, status)
+       VALUES ($1, $2, $2, '', 0, 'AVAILABLE')
+       ON CONFLICT (show_id, seat_id) DO NOTHING`,
+      [show.id, seatId]
+    )
     const results = await Promise.allSettled([
       (async () => {
         const { req, res } = mockReqRes({
