@@ -161,6 +161,8 @@ export const getMovieDetailsWithShowtimes = async (req, res) => {
                 ch.location as cinema_hall_location,
                 ch.district,
                 ch.state,
+                ch.latitude,
+                ch.longitude,
                 sc.id as screen_id,
                 sc.name as screen_name,
                 sc.premium_price,
@@ -196,6 +198,8 @@ export const getMovieDetailsWithShowtimes = async (req, res) => {
                     cinema_hall_location: row.cinema_hall_location,
                     district: row.district,
                     state: row.state,
+                    latitude: row.latitude ? parseFloat(row.latitude) : null,
+                    longitude: row.longitude ? parseFloat(row.longitude) : null,
                     shows: []
                 }
             }
