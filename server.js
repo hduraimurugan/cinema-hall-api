@@ -198,15 +198,15 @@ if (process.env.NODE_ENV !== 'production') {
 
   startServer();
 
-  // Run cleanup every 30 seconds
+  // Run cleanup every 300 seconds
   setInterval(async () => {
     await cleanupExpiredHolds();
-  }, 30000);
+  }, 300000);
 
-  // Run show status update every 60 seconds
+  // Run show status update every 600 seconds
   setInterval(async () => {
     await updateShowStatuses();
-  }, 60000);
+  }, 600000);
 
   process.on('unhandledRejection', (err) => {
     logger.error('🔥 Unhandled Rejection', { message: err.message });
