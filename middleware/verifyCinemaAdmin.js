@@ -8,7 +8,10 @@ const isProduction = process.env.NODE_ENV === 'production'
 
 // ✅ Middleware to verify Access Token
 export const verifyCinemaAdminAccessToken = async (req, res, next) => {
-  const token = req.cookies.accessToken
+  let token = req.cookies.accessToken
+  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1]
+  }
   if (!token) {
     return res.status(401).json({ message: 'Access token missing' })
   }
@@ -60,7 +63,10 @@ export const verifyCinemaAdminRefreshToken = async (req, res, next) => {
 
 // ✅ Middleware to verify Super Admin Access
 export const verifySuperAdmin = async (req, res, next) => {
-  const token = req.cookies.accessToken
+  let token = req.cookies.accessToken
+  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1]
+  }
   if (!token) {
     return res.status(401).json({ message: 'Access token missing' })
   }
@@ -83,7 +89,10 @@ export const verifySuperAdmin = async (req, res, next) => {
 
 // ✅ Verify Cinema Hall
 export const verifyCinemaHall = async (req, res, next) => {
-  const token = req.cookies.accessToken
+  let token = req.cookies.accessToken
+  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1]
+  }
 
   if (!token) {
     return res.status(401).json({ message: 'Access token missing' })
