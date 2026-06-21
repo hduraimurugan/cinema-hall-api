@@ -1,6 +1,11 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
 import dotenv from 'dotenv';
 import logger from './utils/logger.js';
+
+// Parse PostgreSQL DATE type (OID 1082) as plain string instead of JS Date object
+// to prevent timezone shifting issues when serializing to JSON.
+types.setTypeParser(1082, (val) => val);
+
 
 dotenv.config();
 
