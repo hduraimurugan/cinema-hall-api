@@ -5,21 +5,62 @@ import logger from '../utils/logger.js';
 // Returns all halls owned by the authenticated admin.
 export const getMyHalls = async (req, res) => {
   try {
-    const { rows } = await db.query(
-      `SELECT id, name, location, district, state, latitude, longitude,
-              phone, description, is_active, created_at
-       FROM cinema_hall
-       WHERE admin_id = $1 AND is_active = TRUE
-       UNION
-       SELECT ch.id, ch.name, ch.location, ch.district, ch.state, ch.latitude, ch.longitude,
-              ch.phone, ch.description, ch.is_active, ch.created_at
-       FROM cinema_hall ch
-       JOIN hall_assignments ha ON ha.hall_id = ch.id
-       JOIN organization_members om ON om.id = ha.org_member_id
-       WHERE om.admin_id = $1 AND ch.is_active = TRUE
-       ORDER BY created_at ASC`,
-      [req.admin.id]
+    const adminId = req.admin.id;
+    const adminRole = req.admin.role;
+
+    if (adminRole === 'superAdmin') {
+      const { rows } = await db.query(
+        `SELECT id, name, location, district, state, latitude, longitude,
+                phone, description, is_active, created_at, org_id
+         FROM cinema_hall
+         WHERE is_active = TRUE
+         ORDER BY created_at ASC`
+      );
+      return res.status(200).json({ halls: rows });
+    }
+
+    // Fetch organization membership
+    const memberRes = await db.query(
+      `SELECT om.org_id, r.key AS role_key
+       FROM organization_members om
+       JOIN roles r ON r.id = om.role_id
+       WHERE om.admin_id = $1 AND om.status = 'active'
+       LIMIT 1`,
+      [adminId]
     );
+
+    if (memberRes.rows.length === 0) {
+      return res.status(200).json({ halls: [] });
+    }
+
+    const { org_id, role_key } = memberRes.rows[0];
+
+    let queryStr;
+    let queryParams;
+
+    if (role_key === 'owner' || role_key === 'admin') {
+      queryStr = `
+        SELECT id, name, location, district, state, latitude, longitude,
+               phone, description, is_active, created_at, org_id
+        FROM cinema_hall
+        WHERE org_id = $1 AND is_active = TRUE
+        ORDER BY created_at ASC
+      `;
+      queryParams = [org_id];
+    } else {
+      queryStr = `
+        SELECT ch.id, ch.name, ch.location, ch.district, ch.state, ch.latitude, ch.longitude,
+               ch.phone, ch.description, ch.is_active, ch.created_at, ch.org_id
+        FROM cinema_hall ch
+        JOIN hall_assignments ha ON ha.hall_id = ch.id
+        JOIN organization_members om ON om.id = ha.org_member_id
+        WHERE om.admin_id = $1 AND ch.is_active = TRUE
+        ORDER BY ch.created_at ASC
+      `;
+      queryParams = [adminId];
+    }
+
+    const { rows } = await db.query(queryStr, queryParams);
     res.status(200).json({ halls: rows });
   } catch (err) {
     logger.error('getMyHalls error:', { message: err.message });
@@ -37,14 +78,29 @@ export const createHall = async (req, res) => {
   }
 
   try {
+    let orgId = req.admin.orgId;
+    if (!orgId) {
+      const memberRes = await db.query(
+        `SELECT org_id FROM organization_members WHERE admin_id = $1 AND status = 'active' LIMIT 1`,
+        [req.admin.id]
+      );
+      if (memberRes.rows.length > 0) {
+        orgId = memberRes.rows[0].org_id;
+      }
+    }
+    if (!orgId) {
+      return res.status(400).json({ message: 'User does not belong to any organization' });
+    }
+
     const { rows } = await db.query(
       `INSERT INTO cinema_hall
-         (admin_id, name, location, district, state, latitude, longitude, phone, description)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         (admin_id, org_id, name, location, district, state, latitude, longitude, phone, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, name, location, district, state, latitude, longitude,
-                 phone, description, is_active, created_at`,
+                 phone, description, is_active, created_at, org_id`,
       [
         req.admin.id,
+        orgId,
         name.trim(),
         location.trim(),
         district.trim(),
@@ -69,12 +125,40 @@ export const updateHall = async (req, res) => {
   const { name, location, district, state, latitude, longitude, phone, description, is_active } = req.body;
 
   try {
-    // Verify ownership first
-    const ownership = await db.query(
-      `SELECT id FROM cinema_hall WHERE id = $1 AND admin_id = $2`,
-      [id, req.admin.id]
+    // Fetch hall info
+    const hallCheck = await db.query(
+      `SELECT org_id, admin_id FROM cinema_hall WHERE id = $1`,
+      [id]
     );
-    if (ownership.rows.length === 0) {
+    if (hallCheck.rows.length === 0) {
+      return res.status(403).json({ message: 'Hall not found or access denied' });
+    }
+    const hall = hallCheck.rows[0];
+
+    const isSuperAdmin = req.admin.role === 'superAdmin';
+    let hasAccess = isSuperAdmin;
+
+    if (!hasAccess) {
+      const memberRes = await db.query(
+        `SELECT om.org_id, r.key AS role_key
+         FROM organization_members om
+         JOIN roles r ON r.id = om.role_id
+         WHERE om.admin_id = $1 AND om.status = 'active'
+         LIMIT 1`,
+        [req.admin.id]
+      );
+      
+      if (memberRes.rows.length > 0) {
+        const { org_id, role_key } = memberRes.rows[0];
+        if (hall.org_id === org_id) {
+          if (role_key === 'owner' || role_key === 'admin' || hall.admin_id === req.admin.id) {
+            hasAccess = true;
+          }
+        }
+      }
+    }
+
+    if (!hasAccess) {
       return res.status(403).json({ message: 'Hall not found or access denied' });
     }
 
@@ -89,9 +173,9 @@ export const updateHall = async (req, res) => {
            phone       = COALESCE($7, phone),
            description = COALESCE($8, description),
            is_active   = COALESCE($9, is_active)
-       WHERE id = $10 AND admin_id = $11
+       WHERE id = $10
        RETURNING id, name, location, district, state, latitude, longitude,
-                 phone, description, is_active, created_at`,
+                 phone, description, is_active, created_at, org_id`,
       [
         name?.trim() ?? null,
         location?.trim() ?? null,
@@ -103,7 +187,6 @@ export const updateHall = async (req, res) => {
         description?.trim() ?? null,
         is_active ?? null,
         id,
-        req.admin.id,
       ]
     );
 
@@ -121,14 +204,47 @@ export const deleteHall = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const { rowCount } = await db.query(
-      `DELETE FROM cinema_hall WHERE id = $1 AND admin_id = $2`,
-      [id, req.admin.id]
+    // Fetch hall info
+    const hallCheck = await db.query(
+      `SELECT org_id, admin_id FROM cinema_hall WHERE id = $1`,
+      [id]
     );
-
-    if (rowCount === 0) {
+    if (hallCheck.rows.length === 0) {
       return res.status(403).json({ message: 'Hall not found or access denied' });
     }
+    const hall = hallCheck.rows[0];
+
+    const isSuperAdmin = req.admin.role === 'superAdmin';
+    let hasAccess = isSuperAdmin;
+
+    if (!hasAccess) {
+      const memberRes = await db.query(
+        `SELECT om.org_id, r.key AS role_key
+         FROM organization_members om
+         JOIN roles r ON r.id = om.role_id
+         WHERE om.admin_id = $1 AND om.status = 'active'
+         LIMIT 1`,
+        [req.admin.id]
+      );
+      
+      if (memberRes.rows.length > 0) {
+        const { org_id, role_key } = memberRes.rows[0];
+        if (hall.org_id === org_id) {
+          if (role_key === 'owner' || role_key === 'admin' || hall.admin_id === req.admin.id) {
+            hasAccess = true;
+          }
+        }
+      }
+    }
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: 'Hall not found or access denied' });
+    }
+
+    await db.query(
+      `DELETE FROM cinema_hall WHERE id = $1`,
+      [id]
+    );
 
     res.status(200).json({ message: 'Hall deleted successfully' });
   } catch (err) {

@@ -54,13 +54,14 @@ beforeAll(async () => {
   show = await createShow(screen.id, movie.id, { price: 200 })
   customer = await createCustomer()
 
+  const orgCheck = await pool.query(`SELECT org_id FROM cinema_hall WHERE id = $1`, [hall.id])
+  const orgId = orgCheck.rows[0].org_id
+
   await pool.query(
-    `INSERT INTO settings (key, value) VALUES ('convenience_fee_per_ticket', '15')
-     ON CONFLICT (key) DO UPDATE SET value = '15'`
-  )
-  await pool.query(
-    `INSERT INTO settings (key, value) VALUES ('gst_percentage', '18')
-     ON CONFLICT (key) DO UPDATE SET value = '18'`
+    `INSERT INTO organization_settings (org_id, section, value)
+     VALUES ($1, 'payment', $2::jsonb)
+     ON CONFLICT (org_id, section) DO UPDATE SET value = EXCLUDED.value`,
+    [orgId, JSON.stringify({ convenience_fee: { model: 'per_ticket', amount: 15 }, gst_percentage: 18, gst_applies_to: 'convenience_fee', state_taxes: [] })]
   )
 })
 

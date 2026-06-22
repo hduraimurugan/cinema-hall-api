@@ -1,22 +1,39 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { getPool } from '../../setup/db.js'
-import { createSetting } from '../../setup/factories.js'
+import { createAdmin } from '../../setup/factories.js'
 
 vi.mock('../../../utils/logger.js', () => ({ default: { info: vi.fn(), error: vi.fn() } }))
 
 import { getSettings, updateSettings } from '../../../controllers/settings.Controller.js'
 
-function mockReqRes(overrides = {}) {
-  const req = { body: {}, ...overrides }
-  const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() }
-  return { req, res }
-}
+let testAdmin
 
 beforeAll(async () => {
   await getPool()
-  await createSetting('convenience_fee_per_ticket', '15')
-  await createSetting('gst_percentage', '18')
+  testAdmin = await createAdmin()
+  const uniqueSlug = `test-org-${testAdmin.id.slice(0, 8)}-${Date.now()}`
+  const orgRes = await getPool().query(
+    `INSERT INTO organizations (name, slug, owner_id) VALUES ($1, $2, $3) RETURNING id`,
+    [`Test Admin's Org`, uniqueSlug, testAdmin.id]
+  )
+  const orgId = orgRes.rows[0].id
+
+  await getPool().query(
+    `INSERT INTO organization_settings (org_id, section, value)
+     VALUES ($1, 'payment', $2::jsonb)`,
+    [orgId, JSON.stringify({ convenience_fee: { model: 'per_ticket', amount: 15 }, gst_percentage: 18, gst_applies_to: 'convenience_fee', state_taxes: [] })]
+  )
 })
+
+function mockReqRes(overrides = {}) {
+  const req = {
+    body: {},
+    admin: testAdmin ? { id: testAdmin.id, role: 'admin' } : null,
+    ...overrides
+  }
+  const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() }
+  return { req, res }
+}
 
 describe('getSettings', () => {
   it('returns convenience_fee and gst_percentage', async () => {
@@ -64,8 +81,10 @@ describe('updateSettings', () => {
     expect(res.status).toHaveBeenCalledWith(200)
 
     const pool = getPool()
-    const result = await pool.query(`SELECT value FROM settings WHERE key = 'convenience_fee_per_ticket'`)
-    expect(result.rows[0].value).toBe('20')
+    const orgCheck = await pool.query(`SELECT id FROM organizations WHERE owner_id = $1`, [testAdmin.id])
+    const orgId = orgCheck.rows[0].id
+    const result = await pool.query(`SELECT value FROM organization_settings WHERE org_id = $1 AND section = 'payment'`, [orgId])
+    expect(result.rows[0].value.convenience_fee.amount).toBe(20)
   })
 
   it('updates gst percentage successfully', async () => {
@@ -74,7 +93,9 @@ describe('updateSettings', () => {
     expect(res.status).toHaveBeenCalledWith(200)
 
     const pool = getPool()
-    const result = await pool.query(`SELECT value FROM settings WHERE key = 'gst_percentage'`)
-    expect(result.rows[0].value).toBe('12.5')
+    const orgCheck = await pool.query(`SELECT id FROM organizations WHERE owner_id = $1`, [testAdmin.id])
+    const orgId = orgCheck.rows[0].id
+    const result = await pool.query(`SELECT value FROM organization_settings WHERE org_id = $1 AND section = 'payment'`, [orgId])
+    expect(result.rows[0].value.gst_percentage).toBe(12.5)
   })
 })

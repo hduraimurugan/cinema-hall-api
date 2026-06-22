@@ -22,6 +22,7 @@ import {
   setPasswordAdmin,
   validateInviteToken,
   acceptInvite,
+  completeOnboarding,
 } from '../controllers/auth.Controller.js'
 
 import {
@@ -51,6 +52,7 @@ router.post('/github-login', githubLoginAdmin)
 
 // ── Protected routes ───────────────────────────────────────────────────────────
 router.get('/me', verifyCinemaAdminAccessToken, getCinemaAdminMe)
+router.post('/onboarding', verifyCinemaAdminAccessToken, completeOnboarding)
 router.post('/refresh', verifyCinemaAdminRefreshToken, refreshCinemaAdminToken)
 router.patch('/hall', verifyCinemaAdminAccessToken, updateCinemaHall)
 router.post('/change-password', verifyCinemaAdminAccessToken, changePassword)

@@ -108,13 +108,26 @@ describe('Protected Routes (mocked auth)', () => {
   })
 
   it('GET /api/settings returns pricing settings', async () => {
+    let orgId
+    const orgRes = await pool.query('SELECT id FROM organizations LIMIT 1')
+    if (orgRes.rows.length > 0) {
+      orgId = orgRes.rows[0].id
+    } else {
+      const uniqueSlug = `test-org-settings-${Date.now()}`
+      const orgResult = await pool.query(
+        `INSERT INTO organizations (name, slug)
+         VALUES ('Test Org', $1)
+         RETURNING id`,
+        [uniqueSlug]
+      )
+      orgId = orgResult.rows[0].id
+    }
+
     await pool.query(
-      `INSERT INTO settings (key, value) VALUES ('convenience_fee_per_ticket', '20')
-       ON CONFLICT (key) DO UPDATE SET value = '20'`
-    )
-    await pool.query(
-      `INSERT INTO settings (key, value) VALUES ('gst_percentage', '12')
-       ON CONFLICT (key) DO UPDATE SET value = '12'`
+      `INSERT INTO organization_settings (org_id, section, value)
+       VALUES ($1, 'payment', $2::jsonb)
+       ON CONFLICT (org_id, section) DO UPDATE SET value = EXCLUDED.value`,
+      [orgId, JSON.stringify({ convenience_fee: { model: 'per_ticket', amount: 20 }, gst_percentage: 12, gst_applies_to: 'convenience_fee', state_taxes: [] })]
     )
     const res = await request(app).get('/api/settings')
     expect(res.status).toBe(200)

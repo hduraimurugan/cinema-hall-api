@@ -1362,3 +1362,300 @@ export const acceptInvite = async (req, res) => {
     res.status(500).json({ error: 'Failed to accept invite. Try again later.' })
   }
 }
+
+// ✅ Complete Onboarding (Organization + Hall setup)
+export const completeOnboarding = async (req, res) => {
+  const { orgName, name, location, district, state, latitude, longitude, phone, description } = req.body;
+  const adminId = req.admin.id;
+
+  if (!orgName) {
+    return res.status(400).json({ error: 'Organization name is required.' });
+  }
+  if (!name || !location || !district || !state) {
+    return res.status(400).json({ error: 'Cinema Hall name, location, district, and state are required.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Resolve or create organization
+    let orgId;
+    const orgCheck = await client.query(
+      `SELECT id FROM organizations WHERE owner_id = $1 AND is_active = TRUE LIMIT 1`,
+      [adminId]
+    );
+
+    if (orgCheck.rows.length > 0) {
+      orgId = orgCheck.rows[0].id;
+    } else {
+      const baseName = orgName.replace(/[^a-zA-Z0-9 ]/g, '');
+      const slugBase = baseName.toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-') || 'cinema';
+      const uniqueSlug = `${slugBase}-${adminId.toString().slice(0, 8)}`;
+      
+      const orgResult = await client.query(
+        `INSERT INTO organizations (name, slug, owner_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (slug) DO UPDATE SET owner_id = EXCLUDED.owner_id
+         RETURNING id`,
+        [orgName.trim(), uniqueSlug, adminId]
+      );
+      orgId = orgResult.rows[0].id;
+    }
+
+    // 2. Seed system roles for the organization
+    const rolesToSeed = [
+      ['owner',           'Owner',           'Full access to all features including billing and org management'],
+      ['admin',           'Admin',           'Full access except billing, org deletion, and role management'],
+      ['manager',         'Manager',         'Manage shows, screens, bookings, refunds, and view customers'],
+      ['sales',           'Sales',           'Handle bookings, refunds, and customer inquiries'],
+      ['finance',         'Finance',         'View bookings, payments, refunds, and analytics'],
+      ['marketing',       'Marketing',       'Manage offers, ads, and view customer analytics'],
+      ['ticket_operator', 'Ticket Operator',  'Verify tickets and view bookings and shows'],
+      ['auditor',         'Auditor',         'Read-only access across all resources']
+    ];
+
+    for (const [key, label, desc] of rolesToSeed) {
+      await client.query(
+        `INSERT INTO roles (org_id, key, label, description, is_system)
+         VALUES ($1, $2, $3, $4, TRUE)
+         ON CONFLICT (org_id, key) DO NOTHING`,
+        [orgId, key, label, desc]
+      );
+    }
+
+    // 3. Seed role_permissions for system roles
+    const rolesResult = await client.query(`SELECT id, key FROM roles WHERE org_id = $1`, [orgId]);
+    const rolesMap = {};
+    rolesResult.rows.forEach(r => { rolesMap[r.key] = r.id; });
+
+    // Owner role (all permissions)
+    if (rolesMap['owner']) {
+      await client.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, p.id FROM permissions p
+         ON CONFLICT DO NOTHING`,
+        [rolesMap['owner']]
+      );
+    }
+    // Admin role (all except org.delete, roles.manage, billing.manage)
+    if (rolesMap['admin']) {
+      await client.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, p.id FROM permissions p
+         WHERE p.key NOT IN ('org.delete', 'roles.manage', 'billing.manage')
+         ON CONFLICT DO NOTHING`,
+        [rolesMap['admin']]
+      );
+    }
+    // Manager role
+    if (rolesMap['manager']) {
+      await client.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, p.id FROM permissions p
+         WHERE p.key IN (
+           'shows.create', 'shows.read', 'shows.update', 'shows.delete', 'shows.cancel',
+           'screens.create', 'screens.read', 'screens.update', 'screens.delete',
+           'bookings.read', 'bookings.verify', 'bookings.cancel', 'bookings.modify',
+           'refunds.create', 'refunds.read', 'refunds.settle',
+           'movies.read', 'movies.update',
+           'settings.hall.read', 'settings.hall.update',
+           'customers.read', 'dashboard.view'
+         )
+         ON CONFLICT DO NOTHING`,
+        [rolesMap['manager']]
+      );
+    }
+    // Sales role
+    if (rolesMap['sales']) {
+      await client.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, p.id FROM permissions p
+         WHERE p.key IN ('bookings.read', 'bookings.cancel', 'refunds.create', 'refunds.read', 'dashboard.view', 'customers.read')
+         ON CONFLICT DO NOTHING`,
+        [rolesMap['sales']]
+      );
+    }
+    // Finance role
+    if (rolesMap['finance']) {
+      await client.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, p.id FROM permissions p
+         WHERE p.key IN ('bookings.read', 'payment.read', 'refunds.create', 'refunds.read', 'refunds.settle', 'analytics.view', 'dashboard.view', 'customers.read')
+         ON CONFLICT DO NOTHING`,
+        [rolesMap['finance']]
+      );
+    }
+    // Marketing role
+    if (rolesMap['marketing']) {
+      await client.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, p.id FROM permissions p
+         WHERE p.key IN ('offers.create', 'offers.read', 'offers.update', 'offers.delete', 'ads.create', 'ads.read', 'ads.update', 'ads.delete', 'movies.read', 'customers.read', 'analytics.view', 'dashboard.view')
+         ON CONFLICT DO NOTHING`,
+        [rolesMap['marketing']]
+      );
+    }
+    // Ticket operator role
+    if (rolesMap['ticket_operator']) {
+      await client.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, p.id FROM permissions p
+         WHERE p.key IN ('shows.read', 'bookings.read', 'bookings.verify', 'verify-ticket.use', 'customers.read', 'dashboard.view')
+         ON CONFLICT DO NOTHING`,
+        [rolesMap['ticket_operator']]
+      );
+    }
+    // Auditor role
+    if (rolesMap['auditor']) {
+      await client.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, p.id FROM permissions p
+         WHERE p.key LIKE '%.read' OR p.key IN ('audit.view', 'dashboard.view')
+         ON CONFLICT DO NOTHING`,
+        [rolesMap['auditor']]
+      );
+    }
+
+    // 4. Link admin as owner in organization_members
+    if (rolesMap['owner']) {
+      await client.query(
+        `INSERT INTO organization_members (org_id, admin_id, role_id, status, joined_at)
+         VALUES ($1, $2, $3, 'active', now())
+         ON CONFLICT (org_id, admin_id) DO NOTHING`,
+        [orgId, adminId, rolesMap['owner']]
+      );
+    }
+
+    // 5. Seed default organization settings rows
+    // General settings
+    await client.query(
+      `INSERT INTO organization_settings (org_id, section, value)
+       VALUES ($1, 'general', $2)
+       ON CONFLICT (org_id, section) DO NOTHING`,
+      [orgId, JSON.stringify({ org_name: orgName, timezone: "Asia/Kolkata", currency: "INR", language: "en" })]
+    );
+
+    // Payment settings
+    await client.query(
+      `INSERT INTO organization_settings (org_id, section, value)
+       VALUES ($1, 'payment', $2)
+       ON CONFLICT (org_id, section) DO NOTHING`,
+      [orgId, JSON.stringify({ convenience_fee: { model: 'per_ticket', amount: 15 }, gst_percentage: 18, gst_applies_to: 'convenience_fee', state_taxes: [] })]
+    );
+
+    // Tickets settings
+    await client.query(
+      `INSERT INTO organization_settings (org_id, section, value)
+       VALUES ($1, 'tickets', $2)
+       ON CONFLICT (org_id, section) DO NOTHING`,
+      [orgId, JSON.stringify({ booking_id_prefix: "CINE", qr_error_correction: "M", pdf_footer_text: "" })]
+    );
+
+    // Security settings
+    await client.query(
+      `INSERT INTO organization_settings (org_id, section, value)
+       VALUES ($1, 'security', $2)
+       ON CONFLICT (org_id, section) DO NOTHING`,
+      [orgId, JSON.stringify({ password_policy: { min_length: 8, require_upper: true, require_lower: true, require_digit: true, require_special: true, prevent_reuse_count: 5, expiry_days: null }, lockout_policy: { thresholds: [{ attempts: 5, minutes: 15 }, { attempts: 10, minutes: 60 }, { attempts: 15, minutes: 1440 }] }, session_timeout_minutes: null, mfa_required: false, invite_expiry_hours: 72 })]
+    );
+
+    // Notifications settings
+    await client.query(
+      `INSERT INTO organization_settings (org_id, section, value)
+       VALUES ($1, 'notifications', $2)
+       ON CONFLICT (org_id, section) DO NOTHING`,
+      [orgId, JSON.stringify({ email: { provider: "smtp", from: "", enabled: true }, sms: { provider: "", from: "", enabled: false }, whatsapp: { provider: "", enabled: false }, push: { provider: "fcm", enabled: false } })]
+    );
+
+    // Branding settings
+    await client.query(
+      `INSERT INTO organization_settings (org_id, section, value)
+       VALUES ($1, 'branding', $2)
+       ON CONFLICT (org_id, section) DO NOTHING`,
+      [orgId, JSON.stringify({ logo_url: "", logo_dark_url: "", banner_url: "", primary_color: "", accent_color: "", font_family: "", app_name: "Cinemax", default_theme: "dark", white_label: false })]
+    );
+
+    // Integrations settings
+    await client.query(
+      `INSERT INTO organization_settings (org_id, section, value)
+       VALUES ($1, 'integrations', $2)
+       ON CONFLICT (org_id, section) DO NOTHING`,
+      [orgId, JSON.stringify({ razorpay: { key: "", secret_encrypted: "" }, tmdb: { api_key: "" }, cloudinary: { cloud_name: "", api_key: "", api_secret_encrypted: "" } })]
+    );
+
+    // Advanced settings
+    await client.query(
+      `INSERT INTO organization_settings (org_id, section, value)
+       VALUES ($1, 'advanced', $2)
+       ON CONFLICT (org_id, section) DO NOTHING`,
+      [orgId, JSON.stringify({ feature_flags: {}, retention_days: { security_logs: 90, audit_logs: 90, sessions: 30, devices: 365 } })]
+    );
+
+    // 6. Create cinema hall
+    const hallResult = await client.query(
+      `INSERT INTO cinema_hall
+         (admin_id, org_id, name, location, district, state, latitude, longitude, phone, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, name, location, district, state, latitude, longitude, phone, description, is_active, created_at, org_id`,
+      [
+        adminId,
+        orgId,
+        name.trim(),
+        location.trim(),
+        district.trim(),
+        state.trim(),
+        latitude ?? null,
+        longitude ?? null,
+        phone?.trim() ?? null,
+        description?.trim() ?? null,
+      ]
+    );
+    const hall = hallResult.rows[0];
+
+    // 7. Seed default hall settings for this hall
+    await client.query(
+      `INSERT INTO hall_settings (hall_id, section, value)
+       VALUES ($1, 'cinema_profile', $2)
+       ON CONFLICT (hall_id, section) DO NOTHING`,
+      [hall.id, JSON.stringify({ name: hall.name, address: hall.location, district: hall.district, state: hall.state, phone: hall.phone || "", description: hall.description || "", operating_hours: {} })]
+    );
+
+    await client.query(
+      `INSERT INTO hall_settings (hall_id, section, value)
+       VALUES ($1, 'showtimes', $2)
+       ON CONFLICT (hall_id, section) DO NOTHING`,
+      [hall.id, JSON.stringify({ default_buffer_minutes: 15, prevent_overlap: true, default_language_version: "Original", auto_status_transitions: true, timezone: "Asia/Kolkata", advance_booking_days: 7, booking_open_offset_minutes: 0 })]
+    );
+
+    await client.query(
+      `INSERT INTO hall_settings (hall_id, section, value)
+       VALUES ($1, 'booking', $2)
+       ON CONFLICT (hall_id, section) DO NOTHING`,
+      [hall.id, JSON.stringify({ max_seats_per_booking: 10, advance_booking_days: 7, hold_minutes: 5, cancellation: { allowed: true, window_minutes: 120, penalty_percentage: 10 } })]
+    );
+
+    await client.query(
+      `INSERT INTO hall_settings (hall_id, section, value)
+       VALUES ($1, 'offers', $2)
+       ON CONFLICT (hall_id, section) DO NOTHING`,
+      [hall.id, JSON.stringify({ auto_apply_best: true, max_redemptions_per_customer: 1, default_validity_days: 30 })]
+    );
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      message: 'Onboarding completed successfully',
+      orgId,
+      orgName,
+      hall,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    logger.error('❌ Onboarding error:', { message: err.message });
+    res.status(500).json({ error: 'Onboarding failed. Try again later.' });
+  } finally {
+    client.release();
+  }
+};
+

@@ -94,16 +94,41 @@ export const createOrder = async (req, res) => {
             return sum + price;
         }, 0);
 
-        // ── Fetch convenience fee and GST from settings ─────────
-        const settingsResult = await db.query(
-            `SELECT key, value FROM settings WHERE key IN ('convenience_fee_per_ticket', 'gst_percentage')`
-        );
-        const settingsMap = {};
-        settingsResult.rows.forEach(({ key, value }) => {
-            settingsMap[key] = parseFloat(value) || 0;
-        });
-        const convenienceFeePerTicket = settingsMap['convenience_fee_per_ticket'] ?? 15;
-        const gstPercentage           = settingsMap['gst_percentage']              ?? 18;
+        // ── Fetch convenience fee and GST from organization settings ─────────
+        let paymentVal = {};
+        try {
+            const orgResult = await db.query(`
+                SELECT ch.org_id
+                FROM shows s
+                JOIN screens sc ON sc.id = s.screen_id
+                JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+                WHERE s.id = $1
+            `, [show_id]);
+
+            let orgId = orgResult.rows[0]?.org_id;
+            let settingsResult;
+
+            if (orgId) {
+                settingsResult = await db.query(
+                    `SELECT value FROM organization_settings WHERE org_id = $1 AND section = 'payment'`,
+                    [orgId]
+                );
+            }
+
+            if (settingsResult && settingsResult.rows.length > 0) {
+                paymentVal = settingsResult.rows[0].value || {};
+            } else {
+                const fallbackResult = await db.query(
+                    `SELECT value FROM organization_settings WHERE section = 'payment' LIMIT 1`
+                );
+                paymentVal = fallbackResult.rows[0]?.value || {};
+            }
+        } catch (settingsErr) {
+            logger.error('Failed to resolve organization settings, using defaults:', { error: settingsErr.message });
+        }
+
+        const convenienceFeePerTicket = parseFloat(paymentVal.convenience_fee?.amount ?? 15);
+        const gstPercentage           = parseFloat(paymentVal.gst_percentage ?? 18);
 
         const convenienceTotal = seats.length * convenienceFeePerTicket;
         const gstAmount        = convenienceTotal * (gstPercentage / 100);

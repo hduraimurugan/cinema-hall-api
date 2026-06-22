@@ -38,11 +38,54 @@ export async function createHall(adminId, overrides = {}) {
   }
   const data = { ...defaults, ...overrides }
 
+  let orgId = data.org_id
+  if (!orgId) {
+    const orgCheck = await query(
+      `SELECT id FROM organizations WHERE owner_id = $1 LIMIT 1`,
+      [adminId]
+    )
+    if (orgCheck.rows.length > 0) {
+      orgId = orgCheck.rows[0].id
+    } else {
+      const uniqueSlug = `test-org-${adminId.toString().slice(0, 8)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const orgResult = await query(
+        `INSERT INTO organizations (name, slug, owner_id)
+         VALUES ($1, $2, $3)
+         RETURNING id`,
+        [`Test Org for ${adminId}`, uniqueSlug, adminId]
+      )
+      orgId = orgResult.rows[0].id
+      
+      const rolesToSeed = [
+        ['owner', 'Owner'],
+        ['admin', 'Admin']
+      ];
+      for (const [key, label] of rolesToSeed) {
+        await query(
+          `INSERT INTO roles (org_id, key, label, is_system)
+           VALUES ($1, $2, $3, TRUE)
+           ON CONFLICT DO NOTHING`,
+          [orgId, key, label]
+        );
+      }
+      
+      const rolesResult = await query(`SELECT id FROM roles WHERE org_id = $1 AND key = 'owner'`, [orgId]);
+      if (rolesResult.rows.length > 0) {
+        await query(
+          `INSERT INTO organization_members (org_id, admin_id, role_id, status)
+           VALUES ($1, $2, $3, 'active')
+           ON CONFLICT DO NOTHING`,
+          [orgId, adminId, rolesResult.rows[0].id]
+        );
+      }
+    }
+  }
+
   const result = await query(
-    `INSERT INTO cinema_hall (admin_id, name, location, district, state, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO cinema_hall (admin_id, org_id, name, location, district, state, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
-    [adminId, data.name, data.location, data.district, data.state, data.is_active]
+    [adminId, orgId, data.name, data.location, data.district, data.state, data.is_active]
   )
   return result.rows[0]
 }
@@ -162,11 +205,49 @@ export async function createPaymentOrder(showId, customerId, overrides = {}) {
 }
 
 export async function createSetting(key, value) {
+  const orgCheck = await query(`SELECT id FROM organizations LIMIT 1`);
+  let orgId;
+  if (orgCheck.rows.length > 0) {
+    orgId = orgCheck.rows[0].id;
+  } else {
+    const orgResult = await query(
+      `INSERT INTO organizations (name, slug)
+       VALUES ('Default Org', 'default-org')
+       RETURNING id`
+    );
+    orgId = orgResult.rows[0].id;
+  }
+
+  const current = await query(`SELECT value FROM organization_settings WHERE org_id = $1 AND section = 'payment'`, [orgId]);
+  let merged = current.rows[0]?.value || {
+    convenience_fee: { model: 'per_ticket', amount: 15 },
+    gst_percentage: 18,
+    gst_applies_to: 'convenience_fee',
+    state_taxes: []
+  };
+
+  if (key === 'convenience_fee_per_ticket') {
+    merged.convenience_fee = { model: 'per_ticket', amount: parseFloat(value) };
+  } else if (key === 'gst_percentage') {
+    merged.gst_percentage = parseFloat(value);
+  }
+
+  await query(
+    `INSERT INTO organization_settings (org_id, section, value)
+     VALUES ($1, 'payment', $2::jsonb)
+     ON CONFLICT (org_id, section) DO UPDATE SET value = EXCLUDED.value`,
+    [orgId, JSON.stringify(merged)]
+  );
+
+  return { key, value };
+}
+
+export async function createOrgSetting(orgId, section, value) {
   const result = await query(
-    `INSERT INTO settings (key, value) VALUES ($1, $2)
-     ON CONFLICT (key) DO UPDATE SET value = $2
+    `INSERT INTO organization_settings (org_id, section, value) VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (org_id, section) DO UPDATE SET value = EXCLUDED.value
      RETURNING *`,
-    [key, value]
+    [orgId, section, JSON.stringify(value)]
   )
   return result.rows[0]
 }

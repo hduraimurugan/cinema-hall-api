@@ -38,8 +38,10 @@ export async function cleanupAll() {
     'admin_password_reset_tokens', 'admin_verification_tokens',
     'customer_sessions', 'show_booked_seats', 'bookings',
     'payment_orders', 'otp_verifications', 'shows', 'screens',
-    'movies', 'cinema_hall', 'customers', 'cinema_admin_user',
-    'settings',
+    'movies', 'hall_assignments', 'cinema_hall', 'hall_settings',
+    'organization_members', 'role_permissions', 'roles',
+    'organization_settings', 'organizations', 'user_settings',
+    'customers', 'cinema_admin_user', 'permissions'
   ]
   for (const table of tables) {
     await cleanupTable(table)

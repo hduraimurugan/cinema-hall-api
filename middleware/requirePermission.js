@@ -101,7 +101,7 @@ function isMutationPerm(key) {
 export function requirePermission(permissionKey) {
   return async (req, res, next) => {
     try {
-      if (req.admin.role === 'superAdmin' || req.admin.role === 'admin') {
+      if (req.admin.role === 'superAdmin') {
         return next();
       }
 

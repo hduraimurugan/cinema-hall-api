@@ -1,4 +1,5 @@
 import pool from '../db.js'
+import logger from '../utils/logger.js'
 
 // 🔸 Get movies showing in a specific district and state
 export const getMoviesByLocation = async (req, res) => {

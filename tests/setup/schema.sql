@@ -29,11 +29,79 @@ CREATE TABLE IF NOT EXISTS cinema_admin_user (
 );
 
 -- ============================
+-- ORGANIZATIONS
+-- ============================
+CREATE TABLE IF NOT EXISTS organizations (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name              TEXT NOT NULL,
+  slug              TEXT UNIQUE NOT NULL,
+  owner_id          UUID REFERENCES cinema_admin_user(id) ON DELETE SET NULL,
+  default_timezone  TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+  default_currency  TEXT NOT NULL DEFAULT 'INR',
+  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+  plan              TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free','pro','enterprise')),
+  created_at        TIMESTAMPTZ DEFAULT now(),
+  updated_at        TIMESTAMPTZ DEFAULT now()
+);
+
+-- ============================
+-- ROLES
+-- ============================
+CREATE TABLE IF NOT EXISTS roles (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id            UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  key               VARCHAR(50) NOT NULL,
+  label             VARCHAR(100) NOT NULL,
+  description       TEXT,
+  is_system         BOOLEAN NOT NULL DEFAULT FALSE,
+  permissions_version INTEGER NOT NULL DEFAULT 1,
+  created_at        TIMESTAMPTZ DEFAULT now(),
+  updated_at        TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (org_id, key)
+);
+
+-- ============================
+-- PERMISSIONS
+-- ============================
+CREATE TABLE IF NOT EXISTS permissions (
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  key       VARCHAR(100) UNIQUE NOT NULL,
+  label     VARCHAR(200) NOT NULL,
+  resource  VARCHAR(50) NOT NULL
+);
+
+-- ============================
+-- ROLE PERMISSIONS
+-- ============================
+CREATE TABLE IF NOT EXISTS role_permissions (
+  role_id       UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+  PRIMARY KEY (role_id, permission_id)
+);
+
+-- ============================
+-- ORGANIZATION MEMBERS
+-- ============================
+CREATE TABLE IF NOT EXISTS organization_members (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  admin_id    UUID NOT NULL REFERENCES cinema_admin_user(id) ON DELETE CASCADE,
+  role_id     UUID NOT NULL REFERENCES roles(id),
+  status      VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('invited','active','suspended','removed')),
+  invited_by  UUID REFERENCES cinema_admin_user(id),
+  invited_at  TIMESTAMPTZ,
+  joined_at   TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (org_id, admin_id)
+);
+
+-- ============================
 -- CINEMA HALL
 -- ============================
 CREATE TABLE IF NOT EXISTS cinema_hall (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   admin_id UUID REFERENCES cinema_admin_user(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   location TEXT NOT NULL,
   district TEXT NOT NULL DEFAULT '',
@@ -44,6 +112,19 @@ CREATE TABLE IF NOT EXISTS cinema_hall (
   phone TEXT,
   description TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ============================
+-- HALL ASSIGNMENTS
+-- ============================
+CREATE TABLE IF NOT EXISTS hall_assignments (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_member_id   UUID NOT NULL REFERENCES organization_members(id) ON DELETE CASCADE,
+  hall_id         UUID NOT NULL REFERENCES cinema_hall(id) ON DELETE CASCADE,
+  scope           VARCHAR(20) NOT NULL DEFAULT 'full' CHECK (scope IN ('full','read_only','limited')),
+  assigned_by     UUID REFERENCES cinema_admin_user(id),
+  created_at      TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (org_member_id, hall_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_cinema_hall_admin_id ON cinema_hall(admin_id);
@@ -92,6 +173,7 @@ CREATE TABLE IF NOT EXISTS movies (
   vote_count INT,
   rating TEXT,
   duration INT,
+  backdrop_path TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -263,18 +345,47 @@ CREATE TABLE IF NOT EXISTS otp_verifications (
 );
 
 -- ============================
--- SETTINGS
+-- ORGANIZATION SETTINGS
 -- ============================
-CREATE TABLE IF NOT EXISTS settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS organization_settings (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  section         TEXT NOT NULL,
+  value           JSONB NOT NULL DEFAULT '{}',
+  schema_version  INT NOT NULL DEFAULT 1,
+  updated_by      UUID REFERENCES cinema_admin_user(id),
+  updated_at      TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (org_id, section)
 );
+CREATE INDEX IF NOT EXISTS idx_org_settings_org_section ON organization_settings(org_id, section);
 
-INSERT INTO settings (key, value) VALUES
-  ('convenience_fee_per_ticket', '15'),
-  ('gst_percentage', '18')
-ON CONFLICT (key) DO NOTHING;
+-- ============================
+-- HALL SETTINGS
+-- ============================
+CREATE TABLE IF NOT EXISTS hall_settings (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  hall_id         UUID NOT NULL REFERENCES cinema_hall(id) ON DELETE CASCADE,
+  section         TEXT NOT NULL,
+  value           JSONB NOT NULL DEFAULT '{}',
+  schema_version  INT NOT NULL DEFAULT 1,
+  updated_by      UUID REFERENCES cinema_admin_user(id),
+  updated_at      TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (hall_id, section)
+);
+CREATE INDEX IF NOT EXISTS idx_hall_settings_hall_section ON hall_settings(hall_id, section);
+
+-- ============================
+-- USER SETTINGS
+-- ============================
+CREATE TABLE IF NOT EXISTS user_settings (
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_id  UUID NOT NULL REFERENCES cinema_admin_user(id) ON DELETE CASCADE,
+  section   TEXT NOT NULL,
+  value     JSONB NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (admin_id, section)
+);
+CREATE INDEX IF NOT EXISTS idx_user_settings_admin ON user_settings(admin_id);
 
 -- ============================
 -- ADMIN SESSIONS

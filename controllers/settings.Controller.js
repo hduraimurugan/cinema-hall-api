@@ -52,11 +52,33 @@ async function getSectionRow(client, table, idCol, idVal, section) {
 // ── Backward-compat: GET /api/settings (public) ────────────────────
 export const getSettings = async (req, res) => {
   try {
-    const { rows } = await db.query(
-      `SELECT key, value FROM settings WHERE key IN ('convenience_fee_per_ticket', 'gst_percentage')`
-    );
-    const settings = {};
-    rows.forEach(({ key, value }) => { settings[key] = parseFloat(value); });
+    let orgId = null;
+    if (req.admin?.id) {
+      orgId = await resolveOrgId(req.admin.id);
+    }
+    if (!orgId && req.query?.orgId) {
+      orgId = req.query.orgId;
+    }
+    if (!orgId && req.query?.hallId) {
+      const hallRes = await db.query(`SELECT org_id FROM cinema_hall WHERE id = $1`, [req.query.hallId]);
+      if (hallRes.rows.length > 0) orgId = hallRes.rows[0].org_id;
+    }
+
+    let queryStr = `SELECT value FROM organization_settings WHERE section = 'payment'`;
+    let queryParams = [];
+    if (orgId) {
+      queryStr += ` AND org_id = $1`;
+      queryParams.push(orgId);
+    } else {
+      queryStr += ` LIMIT 1`;
+    }
+
+    const { rows } = await db.query(queryStr, queryParams);
+    const paymentVal = rows[0]?.value || {};
+    const settings = {
+      convenience_fee_per_ticket: parseFloat(paymentVal.convenience_fee?.amount ?? 15),
+      gst_percentage: parseFloat(paymentVal.gst_percentage ?? 18)
+    };
     return res.status(200).json(settings);
   } catch (error) {
     logger.error("❌ Get settings error:", { error });
