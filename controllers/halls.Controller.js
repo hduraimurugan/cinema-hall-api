@@ -9,12 +9,39 @@ export const getMyHalls = async (req, res) => {
     const adminRole = req.admin.role;
 
     if (adminRole === 'superAdmin') {
+      // // Old: superAdmin saw ALL active halls — no org scoping
+      // const { rows } = await db.query(
+      //   `SELECT id, name, location, district, state, latitude, longitude,
+      //           phone, description, is_active, created_at, org_id
+      //    FROM cinema_hall
+      //    WHERE is_active = TRUE
+      //    ORDER BY created_at ASC`
+      // );
+      // return res.status(200).json({ halls: rows });
+
+      // Scope superAdmin to their own organization
+      const memberRes = await db.query(
+        `SELECT om.org_id, r.key AS role_key
+         FROM organization_members om
+         JOIN roles r ON r.id = om.role_id
+         WHERE om.admin_id = $1 AND om.status = 'active'
+         LIMIT 1`,
+        [adminId]
+      );
+
+      if (memberRes.rows.length === 0) {
+        return res.status(200).json({ halls: [] });
+      }
+
+      const { org_id } = memberRes.rows[0];
+
       const { rows } = await db.query(
         `SELECT id, name, location, district, state, latitude, longitude,
                 phone, description, is_active, created_at, org_id
          FROM cinema_hall
-         WHERE is_active = TRUE
-         ORDER BY created_at ASC`
+         WHERE org_id = $1 AND is_active = TRUE
+         ORDER BY created_at ASC`,
+        [org_id]
       );
       return res.status(200).json({ halls: rows });
     }
