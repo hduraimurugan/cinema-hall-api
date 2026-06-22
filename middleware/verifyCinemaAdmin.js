@@ -107,16 +107,28 @@ export const verifyCinemaHall = async (req, res, next) => {
     const client = await pool.connect()
     try {
       const { rows } = await client.query(
-        `SELECT * FROM cinema_hall WHERE admin_id = $1`,
+        `SELECT ch.* FROM cinema_hall ch
+         LEFT JOIN hall_assignments ha ON ha.hall_id = ch.id
+         LEFT JOIN organization_members om ON om.id = ha.org_member_id
+         WHERE ch.admin_id = $1 OR (om.admin_id = $1 AND om.status = 'active')
+         ORDER BY ch.name`,
         [decoded.id]
       )
 
-      if (rows.length === 0) {
+      // Deduplicate by id (LEFT JOIN can produce duplicates if a hall matches both conditions)
+      const seen = new Set()
+      const deduped = rows.filter(row => {
+        if (seen.has(row.id)) return false
+        seen.add(row.id)
+        return true
+      })
+
+      if (deduped.length === 0) {
         return res.status(404).json({ message: 'Cinema hall not found for admin' })
       }
 
       // 3. If only one hall per admin, send as object. If multiple, send array.
-      req.my_cinema_hall = rows.length === 1 ? rows[0] : rows
+      req.my_cinema_hall = deduped.length === 1 ? deduped[0] : deduped
     } finally {
       client.release()
     }
@@ -210,16 +222,28 @@ export const requireActiveHall = async (req, res, next) => {
   let client;
   try {
     client = await pool.connect();
-    const { rows } = await client.query(
+    let { rows } = await client.query(
       `SELECT id FROM cinema_hall WHERE id = $1 AND admin_id = $2 AND is_active = TRUE`,
       [hallId, req.admin.id]
     );
 
-    if (rows.length === 0) {
+    let found = rows.length > 0;
+
+    if (!found) {
+      const assignResult = await client.query(
+        `SELECT ha.hall_id FROM hall_assignments ha
+         JOIN organization_members om ON om.id = ha.org_member_id
+         WHERE ha.hall_id = $1 AND om.admin_id = $2 AND om.status = 'active'`,
+        [hallId, req.admin.id]
+      );
+      found = assignResult.rows.length > 0;
+    }
+
+    if (!found) {
       return res.status(403).json({ message: 'Hall not found or access denied' });
     }
 
-    req.currentHallId = rows[0].id;
+    req.currentHallId = hallId;
     next();
   } catch (err) {
     logger.error('❌ requireActiveHall error:', { message: err.message });

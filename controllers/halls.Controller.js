@@ -9,7 +9,14 @@ export const getMyHalls = async (req, res) => {
       `SELECT id, name, location, district, state, latitude, longitude,
               phone, description, is_active, created_at
        FROM cinema_hall
-       WHERE admin_id = $1
+       WHERE admin_id = $1 AND is_active = TRUE
+       UNION
+       SELECT ch.id, ch.name, ch.location, ch.district, ch.state, ch.latitude, ch.longitude,
+              ch.phone, ch.description, ch.is_active, ch.created_at
+       FROM cinema_hall ch
+       JOIN hall_assignments ha ON ha.hall_id = ch.id
+       JOIN organization_members om ON om.id = ha.org_member_id
+       WHERE om.admin_id = $1 AND ch.is_active = TRUE
        ORDER BY created_at ASC`,
       [req.admin.id]
     );

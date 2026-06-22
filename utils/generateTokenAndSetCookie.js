@@ -14,11 +14,41 @@ const isProduction = process.env.NODE_ENV === 'production'
  * @returns {Promise<{ accessToken: string, refreshToken: string }>}
  */
 export const generateTokenAndSetCookie = async (res, admin, meta = {}) => {
+    let orgId = admin.orgId, roleKey = admin.roleKey, permissionsVersion = admin.permissionsVersion;
+    if (!orgId) {
+        try {
+            const orgResult = await pool.query(
+                `SELECT id FROM organizations WHERE owner_id = $1 AND is_active = TRUE LIMIT 1`,
+                [admin.id]
+            );
+            if (orgResult.rows.length > 0) {
+                orgId = orgResult.rows[0].id;
+                const memResult = await pool.query(
+                    `SELECT r.key as role_key, r.permissions_version
+                     FROM organization_members om
+                     JOIN roles r ON r.id = om.role_id
+                     WHERE om.admin_id = $1 AND om.org_id = $2 AND om.status = 'active'
+                     LIMIT 1`,
+                    [admin.id, orgId]
+                );
+                if (memResult.rows.length > 0) {
+                    roleKey = memResult.rows[0].role_key;
+                    permissionsVersion = memResult.rows[0].permissions_version;
+                }
+            }
+        } catch (err) {
+            logger.error('Failed to resolve org for token:', { message: err.message });
+        }
+    }
+
     const payload = {
         id: admin.id,
         email: admin.email,
         name: admin.name,
         role: admin.role,
+        orgId,
+        roleKey,
+        permissionsVersion,
     }
 
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {

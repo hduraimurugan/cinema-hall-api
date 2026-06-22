@@ -20,6 +20,8 @@ import {
   linkProviderAdmin,
   unlinkProviderAdmin,
   setPasswordAdmin,
+  validateInviteToken,
+  acceptInvite,
 } from '../controllers/auth.Controller.js'
 
 import {
@@ -38,6 +40,10 @@ router.get('/verify-email', verifyAdminEmail)
 router.post('/resend-verification', resendVerificationEmail)
 router.post('/forgot-password', forgotPassword)
 router.post('/reset-password', resetPassword)
+
+// ── Invite routes (public) ──────────────────────────────────────────────────────
+router.get('/accept-invite', validateInviteToken)
+router.post('/accept-invite', acceptInvite)
 
 // ── OAuth routes ───────────────────────────────────────────────────────────────
 router.post('/google-login', googleLoginAdmin)

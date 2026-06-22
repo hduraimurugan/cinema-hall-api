@@ -14,6 +14,7 @@ import {
   sendAdminAccountLockedEmail,
 } from '../mail/emails.js'
 import logger from '../utils/logger.js'
+import * as teamService from '../services/team.service.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -306,6 +307,29 @@ export const loginCinemaAdmin = async (req, res) => {
 
     await logSecurityEvent(admin.admin_id, 'LOGIN_SUCCESS', req)
 
+    const loginOrgId = tokenPayload.orgId
+    let loginRoleKey = tokenPayload.roleKey
+    let loginPermissions = []
+
+    if (loginOrgId) {
+      try {
+        const permsSet = await teamService.loadAdminPermissions(admin.admin_id, loginOrgId)
+        loginPermissions = [...permsSet]
+        if (!loginRoleKey) {
+          const memResult = await pool.query(
+            `SELECT r.key FROM organization_members om
+             JOIN roles r ON r.id = om.role_id
+             WHERE om.admin_id = $1 AND om.org_id = $2 AND om.status = 'active'
+             LIMIT 1`,
+            [admin.admin_id, loginOrgId]
+          )
+          if (memResult.rows.length > 0) loginRoleKey = memResult.rows[0].key
+        }
+      } catch (e) {
+        logger.error('Failed to load permissions on login:', { message: e.message })
+      }
+    }
+
     res.status(200).json({
       message: 'Login successful',
       accessToken,
@@ -318,6 +342,9 @@ export const loginCinemaAdmin = async (req, res) => {
         role: admin.role,
         email_verified: admin.email_verified,
         created_at: admin.admin_created_at,
+        orgId: loginOrgId,
+        roleKey: loginRoleKey,
+        permissions: loginPermissions,
       },
       hall: admin.hall_id
         ? {
@@ -349,7 +376,7 @@ export const refreshCinemaAdminToken = async (req, res) => {
     const admin = result.rows[0]
 
     const newAccessToken = jwt.sign(
-      { id: admin.id, name: admin.name, email: admin.email, role: admin.role },
+      { id: admin.id, name: admin.name, email: admin.email, role: admin.role, orgId: req.admin.orgId, roleKey: req.admin.roleKey, permissionsVersion: req.admin.permissionsVersion },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     )
@@ -382,9 +409,12 @@ export const getCinemaAdminMe = async (req, res) => {
         h.id AS hall_id, h.name AS hall_name, h.location AS hall_location,
         h.district AS hall_district, h.state AS hall_state,
         h.latitude AS hall_latitude, h.longitude AS hall_longitude,
-        h.created_at AS hall_created_at
+        h.created_at AS hall_created_at,
+        om.org_id, r.key AS role_key, r.permissions_version
        FROM cinema_admin_user a
        LEFT JOIN cinema_hall h ON h.admin_id = a.id
+       LEFT JOIN organization_members om ON om.admin_id = a.id AND om.status = 'active'
+       LEFT JOIN roles r ON r.id = om.role_id
        WHERE a.id = $1`,
       [adminId]
     )
@@ -394,6 +424,18 @@ export const getCinemaAdminMe = async (req, res) => {
     }
 
     const row = result.rows[0]
+    const orgId = row.org_id
+
+    let permissions = []
+    if (orgId) {
+      try {
+        const permsSet = await teamService.loadAdminPermissions(adminId, orgId)
+        permissions = [...permsSet]
+      } catch (e) {
+        logger.error('Failed to load permissions for me:', { message: e.message })
+      }
+    }
+
     res.status(200).json({
       admin: {
         id: row.admin_id,
@@ -409,6 +451,10 @@ export const getCinemaAdminMe = async (req, res) => {
         avatar: row.avatar,
         has_password: row.has_password,
         created_at: row.admin_created_at,
+        orgId,
+        roleKey: row.role_key,
+        permissionsVersion: row.permissions_version,
+        permissions,
       },
       hall: row.hall_id
         ? {
@@ -1266,5 +1312,53 @@ export const setPasswordAdmin = async (req, res) => {
   } catch (err) {
     logger.error('❌ setPassword error:', { message: err.message })
     res.status(500).json({ error: 'Failed to set password. Try again later.' })
+  }
+}
+
+// ✅ Validate Invite Token (public)
+export const validateInviteToken = async (req, res) => {
+  const { token } = req.query
+  if (!token) return res.status(400).json({ error: 'Invite token is required.' })
+
+  try {
+    const result = await teamService.validateInviteToken(token)
+    if (!result) {
+      return res.status(400).json({ code: 'INVALID_TOKEN', error: 'Invalid invite link.' })
+    }
+    if (result.expired) {
+      return res.status(400).json({ code: 'TOKEN_EXPIRED', error: 'Invite link has expired.' })
+    }
+    res.status(200).json({
+      email: result.email,
+      name: result.name,
+      orgName: result.orgName,
+      invitedBy: result.invitedBy,
+    })
+  } catch (err) {
+    logger.error('❌ validateInviteToken error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to validate invite token.' })
+  }
+}
+
+// ✅ Accept Invite (public)
+export const acceptInvite = async (req, res) => {
+  const { token, newPassword } = req.body
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: 'Token and new password are required.' })
+  }
+
+  const passwordError = validatePassword(newPassword)
+  if (passwordError) return res.status(400).json({ error: passwordError })
+
+  try {
+    const result = await teamService.acceptInvite(token, newPassword)
+    if (result.error) {
+      const statusCode = result.error === 'TOKEN_EXPIRED' ? 400 : 400
+      return res.status(statusCode).json({ code: result.error, error: result.message })
+    }
+    res.status(200).json({ message: 'Invite accepted successfully. You can now log in.' })
+  } catch (err) {
+    logger.error('❌ acceptInvite error:', { message: err.message })
+    res.status(500).json({ error: 'Failed to accept invite. Try again later.' })
   }
 }
