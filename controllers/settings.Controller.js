@@ -85,9 +85,10 @@ export const getOrgSettings = async (req, res) => {
     const settings = {};
     rows.forEach(r => { settings[r.section] = r.value; });
 
-    // Auto-fill org_name in general settings from the organizations table
-    if (settings.general && !settings.general.org_name && org.name) {
-      settings.general.org_name = org.name.replace(/'s Cinema$/, '');
+    // Always provide org_name from organizations table (source of truth)
+    if (!settings.general) settings.general = {};
+    if (org.name) {
+      settings.general.org_name = org.name;
     }
 
     return res.status(200).json({ orgId, org: { name: org.name, slug: org.slug, plan: org.plan }, settings });
@@ -124,16 +125,39 @@ export const updateOrgSettings = async (req, res) => {
         ? { ...row.value, ...patch }
         : patch;
 
-      await client.query(
-        `INSERT INTO organization_settings (org_id, section, value, updated_by, updated_at)
-         VALUES ($1, $2, $3, $4, now())
-         ON CONFLICT (org_id, section) DO UPDATE
-           SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-        [orgId, section, JSON.stringify(merged), req.admin.id]
-      );
+      // Sync org_name to organizations table (source of truth)
+      if (section === 'general' && patch.org_name) {
+        await client.query(
+          `UPDATE organizations SET name = $1, updated_at = now() WHERE id = $2`,
+          [patch.org_name, orgId]
+        );
+      }
+      // Always strip org_name from settings JSONB — source of truth is organizations.name
+      if (section === 'general') {
+        delete merged.org_name;
+      }
+
+      if (Object.keys(merged).length > 0) {
+        await client.query(
+          `INSERT INTO organization_settings (org_id, section, value, updated_by, updated_at)
+           VALUES ($1, $2, $3, $4, now())
+           ON CONFLICT (org_id, section) DO UPDATE
+             SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+          [orgId, section, JSON.stringify(merged), req.admin.id]
+        );
+      }
 
       await client.query('COMMIT');
-      return res.status(200).json({ section, value: merged });
+
+      // Return both the section data and updated org name
+      const resPayload = { section, value: merged };
+      if (section === 'general') {
+        const orgResult = await client.query(
+          `SELECT name FROM organizations WHERE id = $1`, [orgId]
+        );
+        resPayload.org = { name: orgResult.rows[0]?.name };
+      }
+      return res.status(200).json(resPayload);
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
