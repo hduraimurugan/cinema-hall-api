@@ -1,7 +1,35 @@
 import pool from '../db.js';
 import logger from '../utils/logger.js';
 import * as teamService from '../services/team.service.js';
+import { TeamServiceError } from '../services/team.service.js';
 import { resolveOrgId } from '../middleware/requirePermission.js';
+
+// Validation failures from the service layer are client errors, not 500s.
+const ERROR_STATUS = {
+  ROLE_NOT_IN_ORG: 400,
+  HALL_NOT_IN_ORG: 400,
+  INVALID_HALL: 400,
+  ALREADY_MEMBER: 409,
+};
+
+/**
+ * Map a thrown error to a response. Returns true if it was handled as a
+ * client error; false means the caller should fall through to its 500.
+ */
+const handleServiceError = (err, res) => {
+  if (err instanceof TeamServiceError) {
+    return res.status(ERROR_STATUS[err.code] ?? 400).json({ code: err.code, error: err.message });
+  }
+  // Unique-violation on the live-membership index — same meaning as ALREADY_MEMBER.
+  if (err.code === '23505') {
+    return res.status(409).json({ code: 'ALREADY_MEMBER', error: 'This user is already a member of this organization.' });
+  }
+  // Composite FK violation — a cross-org role or hall slipped past validation.
+  if (err.code === '23503') {
+    return res.status(400).json({ code: 'CROSS_ORG_REFERENCE', error: 'Referenced role or hall does not belong to this organization.' });
+  }
+  return null;
+};
 
 export const listOrgMembers = async (req, res) => {
   try {
@@ -35,6 +63,7 @@ export const inviteMember = async (req, res) => {
       email: result.email,
     });
   } catch (err) {
+    if (handleServiceError(err, res)) return;
     logger.error('❌ inviteMember error:', { message: err.message });
     res.status(500).json({ error: 'Failed to send invite' });
   }
@@ -53,6 +82,7 @@ export const createMember = async (req, res) => {
     const result = await teamService.createMember(orgId, req.admin.id, { name, email, password, phone, roleId, halls });
     res.status(201).json({ message: 'Member created successfully', member: result });
   } catch (err) {
+    if (handleServiceError(err, res)) return;
     logger.error('❌ createMember error:', { message: err.message });
     res.status(500).json({ error: 'Failed to create member' });
   }
@@ -99,6 +129,7 @@ export const updateMember = async (req, res) => {
 
     res.status(200).json({ message: 'Member updated successfully', member: result });
   } catch (err) {
+    if (handleServiceError(err, res)) return;
     logger.error('❌ updateMember error:', { message: err.message });
     res.status(500).json({ error: 'Failed to update member' });
   }
@@ -153,6 +184,7 @@ export const assignHalls = async (req, res) => {
 
     res.status(200).json({ message: 'Halls assigned successfully', halls: result });
   } catch (err) {
+    if (handleServiceError(err, res)) return;
     logger.error('❌ assignHalls error:', { message: err.message });
     res.status(500).json({ error: 'Failed to assign halls' });
   }

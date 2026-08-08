@@ -208,10 +208,54 @@ export const verifyCustomer = async (req, res, next) => {
   }
 }
 
+// ✅ requireActiveOrg — organization-scoped data isolation
+// Must be placed AFTER verifyCinemaAdminAccessToken so req.admin is populated.
+// Reads the X-Org-Id header (falling back to the org baked into the JWT),
+// verifies active membership, and sets req.orgId / req.orgRole.
+export const requireActiveOrg = async (req, res, next) => {
+  const requestedOrgId = req.headers['x-org-id'] || req.admin?.orgId;
+
+  if (!requestedOrgId) {
+    return res.status(400).json({ message: 'X-Org-Id header is required' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT om.org_id, r.key AS role_key
+       FROM organization_members om
+       JOIN roles r ON r.id = om.role_id
+       JOIN organizations o ON o.id = om.org_id
+       WHERE om.admin_id = $1 AND om.org_id = $2
+         AND om.status = 'active' AND o.is_active = TRUE`,
+      [req.admin.id, requestedOrgId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(403).json({ message: 'Organization not found or access denied' });
+    }
+
+    req.orgId = rows[0].org_id;
+    req.orgRole = rows[0].role_key;
+    next();
+  } catch (err) {
+    logger.error('❌ requireActiveOrg error:', { message: err.message });
+    return res.status(500).json({ message: 'Internal error verifying organization access' });
+  }
+};
+
 // ✅ requireActiveHall — hall-scoped data isolation
 // Must be placed AFTER verifyCinemaAdminAccessToken so req.admin is populated.
-// Reads X-Hall-Id header, verifies the hall belongs to req.admin.id,
-// and sets req.currentHallId for use in controllers.
+// Reads X-Hall-Id, resolves the caller's membership in the hall's organization,
+// and sets req.currentHallId (plus req.orgId / req.orgRole / req.hallScope).
+//
+// Access is granted when the caller is an active member of the hall's org AND
+// either holds an org-wide role (owner/admin) or has an explicit hall
+// assignment. Ownership via cinema_hall.admin_id is still honoured for halls
+// created before organizations existed.
+//
+// Previously this only accepted admin_id ownership or an explicit assignment,
+// so an org owner who had not personally created a hall got a 403 for a hall
+// that GET /api/halls happily listed for them.
 export const requireActiveHall = async (req, res, next) => {
   const hallId = req.headers['x-hall-id'];
 
@@ -219,39 +263,45 @@ export const requireActiveHall = async (req, res, next) => {
     return res.status(400).json({ message: 'X-Hall-Id header is required' });
   }
 
-  let client;
   try {
-    client = await pool.connect();
-    let { rows } = await client.query(
-      `SELECT id FROM cinema_hall WHERE id = $1 AND admin_id = $2 AND is_active = TRUE`,
+    const { rows } = await pool.query(
+      `SELECT ch.id,
+              ch.org_id,
+              ch.admin_id = $2       AS is_creator,
+              r.key                  AS role_key,
+              ha.scope               AS assignment_scope
+       FROM cinema_hall ch
+       JOIN organization_members om
+         ON om.org_id = ch.org_id AND om.admin_id = $2 AND om.status = 'active'
+       JOIN roles r ON r.id = om.role_id
+       LEFT JOIN hall_assignments ha
+         ON ha.org_member_id = om.id AND ha.hall_id = ch.id
+       WHERE ch.id = $1 AND ch.is_active = TRUE`,
       [hallId, req.admin.id]
     );
 
-    let found = rows.length > 0;
-
-    if (!found) {
-      const assignResult = await client.query(
-        `SELECT ha.hall_id FROM hall_assignments ha
-         JOIN organization_members om ON om.id = ha.org_member_id
-         WHERE ha.hall_id = $1 AND om.admin_id = $2 AND om.status = 'active'`,
-        [hallId, req.admin.id]
-      );
-      found = assignResult.rows.length > 0;
+    if (rows.length === 0) {
+      return res.status(403).json({ message: 'Hall not found or access denied' });
     }
 
-    if (!found) {
+    const hall = rows[0];
+    const orgWideRole = hall.role_key === 'owner' || hall.role_key === 'admin';
+    const allowed = orgWideRole || hall.is_creator || hall.assignment_scope !== null;
+
+    if (!allowed) {
       return res.status(403).json({ message: 'Hall not found or access denied' });
     }
 
     req.currentHallId = hallId;
+    req.orgId = hall.org_id;
+    req.orgRole = hall.role_key;
+    // Org-wide roles and the hall's creator always get full scope; otherwise
+    // the explicit assignment decides. requirePermission enforces read_only.
+    req.hallScope = (orgWideRole || hall.is_creator) ? 'full' : hall.assignment_scope;
     next();
   } catch (err) {
     logger.error('❌ requireActiveHall error:', { message: err.message });
     return res.status(500).json({ message: 'Internal error verifying hall access' });
-  } finally {
-    if (client) {
-      client.release();
-    }
   }
 };
 

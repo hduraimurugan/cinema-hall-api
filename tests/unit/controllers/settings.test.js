@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { getPool } from '../../setup/db.js'
-import { createAdmin } from '../../setup/factories.js'
+import { createAdmin, createOrganization } from '../../setup/factories.js'
 
 vi.mock('../../../utils/logger.js', () => ({ default: { info: vi.fn(), error: vi.fn() } }))
 
@@ -11,12 +11,9 @@ let testAdmin
 beforeAll(async () => {
   await getPool()
   testAdmin = await createAdmin()
-  const uniqueSlug = `test-org-${testAdmin.id.slice(0, 8)}-${Date.now()}`
-  const orgRes = await getPool().query(
-    `INSERT INTO organizations (name, slug, owner_id) VALUES ($1, $2, $3) RETURNING id`,
-    [`Test Admin's Org`, uniqueSlug, testAdmin.id]
-  )
-  const orgId = orgRes.rows[0].id
+  // Must include the owner membership — resolveOrgId resolves through
+  // organization_members, not organizations.owner_id.
+  const orgId = await createOrganization(testAdmin.id, { name: `Test Admin's Org` })
 
   await getPool().query(
     `INSERT INTO organization_settings (org_id, section, value)

@@ -7,6 +7,55 @@ import { hashToken } from '../utils/hashToken.js';
 
 export { loadAdminPermissions, clearPermissionCache };
 
+/**
+ * Error carrying a machine-readable code so controllers can map it to a
+ * 4xx instead of letting a raw Postgres constraint violation become a 500.
+ */
+export class TeamServiceError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'TeamServiceError';
+    this.code = code;
+  }
+}
+
+/**
+ * Assert a role belongs to the given organization.
+ * Without this the composite FK added in migration_phase4 rejects the
+ * write with a raw 23503; with it the caller gets a clear 400.
+ */
+async function assertRoleInOrg(client, orgId, roleId) {
+  const { rows } = await client.query(
+    `SELECT id FROM roles WHERE id = $1 AND org_id = $2`,
+    [roleId, orgId]
+  );
+  if (rows.length === 0) {
+    throw new TeamServiceError('ROLE_NOT_IN_ORG', 'Role does not belong to this organization.');
+  }
+}
+
+/**
+ * Assert every hall in the list belongs to the given organization.
+ * Guards the cross-org hall grant that hall_assignments used to allow.
+ */
+async function assertHallsInOrg(client, orgId, halls) {
+  if (!halls || halls.length === 0) return;
+
+  const hallIds = halls.map(h => h.hallId);
+  if (hallIds.some(id => !id)) {
+    throw new TeamServiceError('INVALID_HALL', 'Each hall entry requires a hallId.');
+  }
+
+  const { rows } = await client.query(
+    `SELECT id FROM cinema_hall WHERE id = ANY($1::uuid[]) AND org_id = $2`,
+    [hallIds, orgId]
+  );
+
+  if (rows.length !== new Set(hallIds).size) {
+    throw new TeamServiceError('HALL_NOT_IN_ORG', 'One or more halls do not belong to this organization.');
+  }
+}
+
 export async function getOrgMembers(orgId, { search, page = 1, limit = 10 }) {
   const safeLimit = Math.min(Math.max(parseInt(limit) || 10, 1), 100);
   const offset = (Math.max(parseInt(page) || 1, 1) - 1) * safeLimit;
@@ -55,6 +104,9 @@ export async function createMember(orgId, createdBy, { name, email, password, ph
   try {
     await client.query('BEGIN');
 
+    await assertRoleInOrg(client, orgId, roleId);
+    await assertHallsInOrg(client, orgId, halls);
+
     const hashedPassword = await bcrypt.hash(password, 12);
 
     const userResult = await client.query(
@@ -76,10 +128,10 @@ export async function createMember(orgId, createdBy, { name, email, password, ph
     if (halls && Array.isArray(halls) && halls.length > 0) {
       for (const hall of halls) {
         await client.query(
-          `INSERT INTO hall_assignments (org_member_id, hall_id, scope, assigned_by)
-           VALUES ($1, $2, $3, $4)
+          `INSERT INTO hall_assignments (org_member_id, org_id, hall_id, scope, assigned_by)
+           VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (org_member_id, hall_id) DO UPDATE SET scope = EXCLUDED.scope`,
-          [memberId, hall.hallId, hall.scope || 'full', createdBy]
+          [memberId, orgId, hall.hallId, hall.scope || 'full', createdBy]
         );
       }
     }
@@ -102,6 +154,9 @@ export async function inviteMember(orgId, invitedBy, { email, roleId, halls }) {
   try {
     await client.query('BEGIN');
 
+    await assertRoleInOrg(client, orgId, roleId);
+    await assertHallsInOrg(client, orgId, halls);
+
     let adminResult = await client.query(
       `SELECT id, name, email FROM cinema_admin_user WHERE email = $1`,
       [email.toLowerCase()]
@@ -120,21 +175,50 @@ export async function inviteMember(orgId, invitedBy, { email, roleId, halls }) {
       adminId = adminResult.rows[0].id;
     }
 
-    const memberResult = await client.query(
-      `INSERT INTO organization_members (org_id, admin_id, role_id, status, invited_by, invited_at)
-       VALUES ($1, $2, $3, 'invited', $4, now())
-       RETURNING id`,
+    const existingLive = await client.query(
+      `SELECT id, status FROM organization_members
+        WHERE org_id = $1 AND admin_id = $2 AND status <> 'removed'`,
+      [orgId, adminId]
+    );
+    if (existingLive.rows.length > 0) {
+      throw new TeamServiceError(
+        'ALREADY_MEMBER',
+        `This user is already ${existingLive.rows[0].status} in this organization.`
+      );
+    }
+
+    // A previously removed member keeps their row (history), so re-inviting
+    // means reviving it rather than inserting a second one. The partial
+    // unique index added in migration_phase4 only covers live memberships.
+    const revived = await client.query(
+      `UPDATE organization_members
+          SET role_id = $3, status = 'invited', invited_by = $4,
+              invited_at = now(), joined_at = NULL, removed_at = NULL
+        WHERE org_id = $1 AND admin_id = $2 AND status = 'removed'
+        RETURNING id`,
       [orgId, adminId, roleId, invitedBy]
     );
-    const memberId = memberResult.rows[0].id;
+
+    let memberId;
+    if (revived.rows.length > 0) {
+      memberId = revived.rows[0].id;
+    } else {
+      const memberResult = await client.query(
+        `INSERT INTO organization_members (org_id, admin_id, role_id, status, invited_by, invited_at)
+         VALUES ($1, $2, $3, 'invited', $4, now())
+         RETURNING id`,
+        [orgId, adminId, roleId, invitedBy]
+      );
+      memberId = memberResult.rows[0].id;
+    }
 
     if (halls && Array.isArray(halls) && halls.length > 0) {
       for (const hall of halls) {
         await client.query(
-          `INSERT INTO hall_assignments (org_member_id, hall_id, scope, assigned_by)
-           VALUES ($1, $2, $3, $4)
+          `INSERT INTO hall_assignments (org_member_id, org_id, hall_id, scope, assigned_by)
+           VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (org_member_id, hall_id) DO UPDATE SET scope = EXCLUDED.scope`,
-          [memberId, hall.hallId, hall.scope || 'full', invitedBy]
+          [memberId, orgId, hall.hallId, hall.scope || 'full', invitedBy]
         );
       }
     }
@@ -254,12 +338,15 @@ export async function updateMember(memberId, orgId, updates) {
   let idx = 1;
 
   if (updates.roleId !== undefined) {
+    await assertRoleInOrg(pool, orgId, updates.roleId);
     sets.push(`role_id = $${idx++}`);
     params.push(updates.roleId);
   }
   if (updates.status !== undefined) {
     sets.push(`status = $${idx++}`);
     params.push(updates.status);
+    // Keep removed_at consistent with the status the row is moving to.
+    sets.push(`removed_at = ${updates.status === 'removed' ? 'now()' : 'NULL'}`);
   }
 
   if (sets.length === 0) return null;
@@ -280,7 +367,10 @@ export async function updateMember(memberId, orgId, updates) {
 
 export async function removeMember(memberId, orgId) {
   const result = await pool.query(
-    `UPDATE organization_members SET status = 'removed' WHERE id = $1 AND org_id = $2 RETURNING id, admin_id`,
+    `UPDATE organization_members
+        SET status = 'removed', removed_at = now()
+      WHERE id = $1 AND org_id = $2
+      RETURNING id, admin_id`,
     [memberId, orgId]
   );
 
@@ -318,12 +408,16 @@ export async function assignHalls(memberId, orgId, halls) {
       return null;
     }
 
+    // The member was checked above; the halls were not. Without this a
+    // member of org A could be granted a hall belonging to org B.
+    await assertHallsInOrg(client, orgId, halls);
+
     for (const hall of halls) {
       await client.query(
-        `INSERT INTO hall_assignments (org_member_id, hall_id, scope, assigned_by)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO hall_assignments (org_member_id, org_id, hall_id, scope, assigned_by)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (org_member_id, hall_id) DO UPDATE SET scope = EXCLUDED.scope`,
-        [memberId, hall.hallId, hall.scope || 'full', hall.assignedBy || null]
+        [memberId, orgId, hall.hallId, hall.scope || 'full', hall.assignedBy || null]
       );
     }
 

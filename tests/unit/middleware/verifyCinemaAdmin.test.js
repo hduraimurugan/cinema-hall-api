@@ -27,6 +27,7 @@ import {
   verifyScreenOwnership,
   verifyCustomer,
   requireActiveHall,
+  requireActiveOrg,
   verifyCustomerRefreshToken,
 } from '../../../middleware/verifyCinemaAdmin.js'
 
@@ -277,9 +278,8 @@ describe('requireActiveHall', () => {
     expect(res.json).toHaveBeenCalledWith({ message: 'X-Hall-Id header is required' })
   })
 
-  it('returns 403 if hall not found or not owned', async () => {
-    const mockClient = { query: vi.fn().mockResolvedValue({ rows: [] }), release: vi.fn() }
-    pool.connect.mockResolvedValue(mockClient)
+  it('returns 403 if hall not found or caller is not a member of its org', async () => {
+    pool.query.mockResolvedValue({ rows: [] })
     const { req, res, next } = mockReqRes({
       admin: { id: 'a1' },
       headers: { 'x-hall-id': 'h1' },
@@ -288,17 +288,100 @@ describe('requireActiveHall', () => {
     expect(res.status).toHaveBeenCalledWith(403)
   })
 
+  it('returns 403 for an org member with no claim on the hall', async () => {
+    // Member of the hall's org, but a scoped role and no hall assignment.
+    pool.query.mockResolvedValue({
+      rows: [{ id: 'h1', org_id: 'o1', is_creator: false, role_key: 'sales', assignment_scope: null }],
+    })
+    const { req, res, next } = mockReqRes({
+      admin: { id: 'a1' },
+      headers: { 'x-hall-id': 'h1' },
+    })
+    await requireActiveHall(req, res, next)
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(next).not.toHaveBeenCalled()
+  })
 
-
-  it('sets req.currentHallId for valid hall', async () => {
-    const mockClient = { query: vi.fn().mockResolvedValue({ rows: [{ id: 'h1' }] }), release: vi.fn() }
-    pool.connect.mockResolvedValue(mockClient)
+  it('grants full scope to an org owner who did not create the hall', async () => {
+    pool.query.mockResolvedValue({
+      rows: [{ id: 'h1', org_id: 'o1', is_creator: false, role_key: 'owner', assignment_scope: null }],
+    })
     const { req, res, next } = mockReqRes({
       admin: { id: 'a1' },
       headers: { 'x-hall-id': 'h1' },
     })
     await requireActiveHall(req, res, next)
     expect(req.currentHallId).toBe('h1')
+    expect(req.orgId).toBe('o1')
+    expect(req.hallScope).toBe('full')
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it('honours an explicit read_only hall assignment', async () => {
+    pool.query.mockResolvedValue({
+      rows: [{ id: 'h1', org_id: 'o1', is_creator: false, role_key: 'manager', assignment_scope: 'read_only' }],
+    })
+    const { req, res, next } = mockReqRes({
+      admin: { id: 'a1' },
+      headers: { 'x-hall-id': 'h1' },
+    })
+    await requireActiveHall(req, res, next)
+    expect(req.hallScope).toBe('read_only')
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it('sets req.currentHallId for valid hall', async () => {
+    pool.query.mockResolvedValue({
+      rows: [{ id: 'h1', org_id: 'o1', is_creator: true, role_key: 'manager', assignment_scope: null }],
+    })
+    const { req, res, next } = mockReqRes({
+      admin: { id: 'a1' },
+      headers: { 'x-hall-id': 'h1' },
+    })
+    await requireActiveHall(req, res, next)
+    expect(req.currentHallId).toBe('h1')
+    expect(next).toHaveBeenCalledOnce()
+  })
+})
+
+// ====================================================
+// requireActiveOrg
+// ====================================================
+describe('requireActiveOrg', () => {
+  it('returns 400 when no org can be determined', async () => {
+    const { req, res, next } = mockReqRes({ admin: { id: 'a1' } })
+    await requireActiveOrg(req, res, next)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.json).toHaveBeenCalledWith({ message: 'X-Org-Id header is required' })
+  })
+
+  it('returns 403 when the caller is not an active member of the org', async () => {
+    pool.query.mockResolvedValue({ rows: [] })
+    const { req, res, next } = mockReqRes({
+      admin: { id: 'a1' },
+      headers: { 'x-org-id': 'o1' },
+    })
+    await requireActiveOrg(req, res, next)
+    expect(res.status).toHaveBeenCalledWith(403)
+  })
+
+  it('sets req.orgId and req.orgRole for an active member', async () => {
+    pool.query.mockResolvedValue({ rows: [{ org_id: 'o1', role_key: 'manager' }] })
+    const { req, res, next } = mockReqRes({
+      admin: { id: 'a1' },
+      headers: { 'x-org-id': 'o1' },
+    })
+    await requireActiveOrg(req, res, next)
+    expect(req.orgId).toBe('o1')
+    expect(req.orgRole).toBe('manager')
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it('falls back to the org baked into the JWT', async () => {
+    pool.query.mockResolvedValue({ rows: [{ org_id: 'o9', role_key: 'owner' }] })
+    const { req, res, next } = mockReqRes({ admin: { id: 'a1', orgId: 'o9' } })
+    await requireActiveOrg(req, res, next)
+    expect(req.orgId).toBe('o9')
     expect(next).toHaveBeenCalledOnce()
   })
 })

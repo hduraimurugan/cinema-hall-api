@@ -1,44 +1,8 @@
 import db from "../db.js";
 import logger from '../utils/logger.js';
+import { resolveOrgId } from '../middleware/requirePermission.js';
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-/** Resolve or auto-create the org_id for the currently authenticated admin. */
-async function resolveOrgId(adminId) {
-  // Try existing
-  const { rows } = await db.query(
-    `SELECT id FROM organizations WHERE owner_id = $1 AND is_active = TRUE LIMIT 1`,
-    [adminId]
-  );
-  if (rows.length > 0) return rows[0].id;
-
-  // Auto-create org for admin (handles admins created after migration)
-  try {
-    const admin = await db.query(
-      `SELECT id, name, email FROM cinema_admin_user WHERE id = $1`,
-      [adminId]
-    );
-    if (admin.rows.length === 0) return null;
-
-    const a = admin.rows[0];
-    const baseName = (a.name || a.email || 'admin').replace(/[^a-zA-Z0-9 ]/g, '');
-    const slugBase = baseName.toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-') || 'cinema';
-    const uniqueSlug = `${slugBase}-${a.id.toString().slice(0, 8)}`;
-    const orgName = baseName + "'s Cinema";
-
-    const org = await db.query(
-      `INSERT INTO organizations (name, slug, owner_id)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (slug) DO UPDATE SET owner_id = EXCLUDED.owner_id
-       RETURNING id`,
-      [orgName, uniqueSlug, a.id]
-    );
-    return org.rows[0].id;
-  } catch (err) {
-    logger.error("Failed to auto-create organization:", { error: err.message, adminId });
-    return null;
-  }
-}
 
 /** Fetch a single settings row by scope + section. */
 async function getSectionRow(client, table, idCol, idVal, section) {

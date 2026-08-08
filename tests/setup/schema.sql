@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name              TEXT NOT NULL,
   slug              TEXT UNIQUE NOT NULL,
-  owner_id          UUID REFERENCES cinema_admin_user(id) ON DELETE SET NULL,
+  owner_id          UUID REFERENCES cinema_admin_user(id) ON DELETE RESTRICT,
   default_timezone  TEXT NOT NULL DEFAULT 'Asia/Kolkata',
   default_currency  TEXT NOT NULL DEFAULT 'INR',
   is_active         BOOLEAN NOT NULL DEFAULT TRUE,
@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS roles (
   permissions_version INTEGER NOT NULL DEFAULT 1,
   created_at        TIMESTAMPTZ DEFAULT now(),
   updated_at        TIMESTAMPTZ DEFAULT now(),
-  UNIQUE (org_id, key)
+  UNIQUE (org_id, key),
+  UNIQUE (id, org_id)
 );
 
 -- ============================
@@ -86,21 +87,28 @@ CREATE TABLE IF NOT EXISTS organization_members (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   admin_id    UUID NOT NULL REFERENCES cinema_admin_user(id) ON DELETE CASCADE,
-  role_id     UUID NOT NULL REFERENCES roles(id),
+  role_id     UUID NOT NULL,
   status      VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('invited','active','suspended','removed')),
   invited_by  UUID REFERENCES cinema_admin_user(id),
   invited_at  TIMESTAMPTZ,
   joined_at   TIMESTAMPTZ,
+  removed_at  TIMESTAMPTZ,
   created_at  TIMESTAMPTZ DEFAULT now(),
-  UNIQUE (org_id, admin_id)
+  CONSTRAINT organization_members_id_org_key UNIQUE (id, org_id),
+  CONSTRAINT organization_members_role_same_org_fkey
+    FOREIGN KEY (role_id, org_id) REFERENCES roles(id, org_id) ON DELETE RESTRICT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_active_org_member
+  ON organization_members(org_id, admin_id)
+  WHERE status <> 'removed';
 
 -- ============================
 -- CINEMA HALL
 -- ============================
 CREATE TABLE IF NOT EXISTS cinema_hall (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  admin_id UUID REFERENCES cinema_admin_user(id) ON DELETE CASCADE,
+  admin_id UUID REFERENCES cinema_admin_user(id) ON DELETE SET NULL,
   org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   location TEXT NOT NULL,
@@ -111,7 +119,8 @@ CREATE TABLE IF NOT EXISTS cinema_hall (
   longitude NUMERIC(10,7),
   phone TEXT,
   description TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  CONSTRAINT cinema_hall_id_org_key UNIQUE (id, org_id)
 );
 
 -- ============================
@@ -119,14 +128,20 @@ CREATE TABLE IF NOT EXISTS cinema_hall (
 -- ============================
 CREATE TABLE IF NOT EXISTS hall_assignments (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_member_id   UUID NOT NULL REFERENCES organization_members(id) ON DELETE CASCADE,
-  hall_id         UUID NOT NULL REFERENCES cinema_hall(id) ON DELETE CASCADE,
+  org_member_id   UUID NOT NULL,
+  org_id          UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  hall_id         UUID NOT NULL,
   scope           VARCHAR(20) NOT NULL DEFAULT 'full' CHECK (scope IN ('full','read_only','limited')),
   assigned_by     UUID REFERENCES cinema_admin_user(id),
   created_at      TIMESTAMPTZ DEFAULT now(),
-  UNIQUE (org_member_id, hall_id)
+  UNIQUE (org_member_id, hall_id),
+  CONSTRAINT hall_assignments_member_same_org_fkey
+    FOREIGN KEY (org_member_id, org_id) REFERENCES organization_members(id, org_id) ON DELETE CASCADE,
+  CONSTRAINT hall_assignments_hall_same_org_fkey
+    FOREIGN KEY (hall_id, org_id) REFERENCES cinema_hall(id, org_id) ON DELETE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS idx_hall_assignments_org ON hall_assignments(org_id);
 CREATE INDEX IF NOT EXISTS idx_cinema_hall_admin_id ON cinema_hall(admin_id);
 
 -- ============================

@@ -8,33 +8,40 @@ const isProduction = process.env.NODE_ENV === 'production'
 /**
  * Issue access + refresh tokens for an admin, set HttpOnly cookies,
  * and persist the refresh token hash in admin_sessions for revocation support.
+ *
+ * The resolved organization context is RETURNED as well as embedded in the
+ * token — callers need it to build their login response. (It used to be
+ * resolved into a local only, so every caller reporting orgId/roleKey read
+ * undefined.)
+ *
  * @param {import('express').Response} res
  * @param {object} admin  - { id, email, name, role }
  * @param {object} [meta] - { ip, userAgent } for session record
- * @returns {Promise<{ accessToken: string, refreshToken: string }>}
+ * @returns {Promise<{ accessToken: string, refreshToken: string, orgId: string|null, roleKey: string|null, permissionsVersion: number|null }>}
  */
 export const generateTokenAndSetCookie = async (res, admin, meta = {}) => {
-    let orgId = admin.orgId, roleKey = admin.roleKey, permissionsVersion = admin.permissionsVersion;
+    let orgId = admin.orgId ?? null,
+        roleKey = admin.roleKey ?? null,
+        permissionsVersion = admin.permissionsVersion ?? null;
+
     if (!orgId) {
         try {
-            const orgResult = await pool.query(
-                `SELECT id FROM organizations WHERE owner_id = $1 AND is_active = TRUE LIMIT 1`,
+            // Resolve through membership, not organizations.owner_id — staff and
+            // other non-owner members belong to an org too and need it in their token.
+            const memResult = await pool.query(
+                `SELECT om.org_id, r.key AS role_key, r.permissions_version
+                 FROM organization_members om
+                 JOIN roles r ON r.id = om.role_id
+                 JOIN organizations o ON o.id = om.org_id
+                 WHERE om.admin_id = $1 AND om.status = 'active' AND o.is_active = TRUE
+                 ORDER BY (o.owner_id = $1) DESC, om.created_at ASC
+                 LIMIT 1`,
                 [admin.id]
             );
-            if (orgResult.rows.length > 0) {
-                orgId = orgResult.rows[0].id;
-                const memResult = await pool.query(
-                    `SELECT r.key as role_key, r.permissions_version
-                     FROM organization_members om
-                     JOIN roles r ON r.id = om.role_id
-                     WHERE om.admin_id = $1 AND om.org_id = $2 AND om.status = 'active'
-                     LIMIT 1`,
-                    [admin.id, orgId]
-                );
-                if (memResult.rows.length > 0) {
-                    roleKey = memResult.rows[0].role_key;
-                    permissionsVersion = memResult.rows[0].permissions_version;
-                }
+            if (memResult.rows.length > 0) {
+                orgId = memResult.rows[0].org_id;
+                roleKey = memResult.rows[0].role_key;
+                permissionsVersion = memResult.rows[0].permissions_version;
             }
         } catch (err) {
             logger.error('Failed to resolve org for token:', { message: err.message });
@@ -85,7 +92,7 @@ export const generateTokenAndSetCookie = async (res, admin, meta = {}) => {
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     })
 
-    return { accessToken, refreshToken }
+    return { accessToken, refreshToken, orgId, roleKey, permissionsVersion }
 }
 
 export const generateCustomerTokenAndSetCookie = async (res, customer, meta = {}) => {

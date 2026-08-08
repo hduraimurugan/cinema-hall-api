@@ -28,6 +28,56 @@ export async function createSuperAdmin(overrides = {}) {
   return createAdmin({ ...overrides, role: 'superAdmin' })
 }
 
+/**
+ * Create a fully-formed organization for an admin: org row, system roles, and
+ * the owner's membership. The membership matters — resolveOrgId reads
+ * organization_members, and every production path (onboarding, the db_setup
+ * seed) creates it, so a fixture without one is not a realistic state.
+ *
+ * Returns the existing org if the admin already owns one.
+ */
+export async function createOrganization(adminId, overrides = {}) {
+  const existing = await query(
+    `SELECT id FROM organizations WHERE owner_id = $1 LIMIT 1`,
+    [adminId]
+  )
+  if (existing.rows.length > 0) return existing.rows[0].id
+
+  const uniqueSlug = overrides.slug
+    || `test-org-${adminId.toString().slice(0, 8)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  const orgResult = await query(
+    `INSERT INTO organizations (name, slug, owner_id)
+     VALUES ($1, $2, $3)
+     RETURNING id`,
+    [overrides.name || `Test Org for ${adminId}`, uniqueSlug, adminId]
+  )
+  const orgId = orgResult.rows[0].id
+
+  for (const [key, label] of [['owner', 'Owner'], ['admin', 'Admin']]) {
+    await query(
+      `INSERT INTO roles (org_id, key, label, is_system)
+       VALUES ($1, $2, $3, TRUE)
+       ON CONFLICT DO NOTHING`,
+      [orgId, key, label]
+    )
+  }
+
+  const ownerRole = await query(
+    `SELECT id FROM roles WHERE org_id = $1 AND key = 'owner'`,
+    [orgId]
+  )
+  if (ownerRole.rows.length > 0) {
+    await query(
+      `INSERT INTO organization_members (org_id, admin_id, role_id, status, joined_at)
+       VALUES ($1, $2, $3, 'active', now())
+       ON CONFLICT DO NOTHING`,
+      [orgId, adminId, ownerRole.rows[0].id]
+    )
+  }
+
+  return orgId
+}
+
 export async function createHall(adminId, overrides = {}) {
   const defaults = {
     name: 'Test Cinema Hall',
@@ -38,48 +88,7 @@ export async function createHall(adminId, overrides = {}) {
   }
   const data = { ...defaults, ...overrides }
 
-  let orgId = data.org_id
-  if (!orgId) {
-    const orgCheck = await query(
-      `SELECT id FROM organizations WHERE owner_id = $1 LIMIT 1`,
-      [adminId]
-    )
-    if (orgCheck.rows.length > 0) {
-      orgId = orgCheck.rows[0].id
-    } else {
-      const uniqueSlug = `test-org-${adminId.toString().slice(0, 8)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const orgResult = await query(
-        `INSERT INTO organizations (name, slug, owner_id)
-         VALUES ($1, $2, $3)
-         RETURNING id`,
-        [`Test Org for ${adminId}`, uniqueSlug, adminId]
-      )
-      orgId = orgResult.rows[0].id
-      
-      const rolesToSeed = [
-        ['owner', 'Owner'],
-        ['admin', 'Admin']
-      ];
-      for (const [key, label] of rolesToSeed) {
-        await query(
-          `INSERT INTO roles (org_id, key, label, is_system)
-           VALUES ($1, $2, $3, TRUE)
-           ON CONFLICT DO NOTHING`,
-          [orgId, key, label]
-        );
-      }
-      
-      const rolesResult = await query(`SELECT id FROM roles WHERE org_id = $1 AND key = 'owner'`, [orgId]);
-      if (rolesResult.rows.length > 0) {
-        await query(
-          `INSERT INTO organization_members (org_id, admin_id, role_id, status)
-           VALUES ($1, $2, $3, 'active')
-           ON CONFLICT DO NOTHING`,
-          [orgId, adminId, rolesResult.rows[0].id]
-        );
-      }
-    }
-  }
+  const orgId = data.org_id || await createOrganization(adminId)
 
   const result = await query(
     `INSERT INTO cinema_hall (admin_id, org_id, name, location, district, state, is_active)

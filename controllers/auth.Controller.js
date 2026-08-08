@@ -46,6 +46,20 @@ const logSecurityEvent = async (adminId, action, req, metadata = {}) => {
   }
 }
 
+/**
+ * Load an admin's permission keys for a login response. Never throws — a
+ * permission-load failure must not block an otherwise valid login.
+ */
+const resolveLoginPermissions = async (adminId, orgId) => {
+  if (!orgId) return []
+  try {
+    return [...await teamService.loadAdminPermissions(adminId, orgId)]
+  } catch (e) {
+    logger.error('Failed to load permissions on login:', { message: e.message })
+    return []
+  }
+}
+
 // ✅ Register Admin
 export const registerCinemaAdmin = async (req, res) => {
   const { name, email, password, phone } = req.body
@@ -303,32 +317,14 @@ export const loginCinemaAdmin = async (req, res) => {
 
     const tokenPayload = { id: admin.admin_id, name: admin.admin_name, email: admin.email, role: admin.role }
     const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
-    const { accessToken, refreshToken } = await generateTokenAndSetCookie(res, tokenPayload, meta)
+    const {
+      accessToken, refreshToken,
+      orgId: loginOrgId, roleKey: loginRoleKey,
+    } = await generateTokenAndSetCookie(res, tokenPayload, meta)
 
     await logSecurityEvent(admin.admin_id, 'LOGIN_SUCCESS', req)
 
-    const loginOrgId = tokenPayload.orgId
-    let loginRoleKey = tokenPayload.roleKey
-    let loginPermissions = []
-
-    if (loginOrgId) {
-      try {
-        const permsSet = await teamService.loadAdminPermissions(admin.admin_id, loginOrgId)
-        loginPermissions = [...permsSet]
-        if (!loginRoleKey) {
-          const memResult = await pool.query(
-            `SELECT r.key FROM organization_members om
-             JOIN roles r ON r.id = om.role_id
-             WHERE om.admin_id = $1 AND om.org_id = $2 AND om.status = 'active'
-             LIMIT 1`,
-            [admin.admin_id, loginOrgId]
-          )
-          if (memResult.rows.length > 0) loginRoleKey = memResult.rows[0].key
-        }
-      } catch (e) {
-        logger.error('Failed to load permissions on login:', { message: e.message })
-      }
-    }
+    const loginPermissions = await resolveLoginPermissions(admin.admin_id, loginOrgId)
 
     res.status(200).json({
       message: 'Login successful',
@@ -962,9 +958,14 @@ export const googleLoginAdmin = async (req, res) => {
 
     const tokenPayload = { id: adminId, name: admin.admin_name || admin.name, email: admin.email || googleUser.email, role: admin.role || 'admin' }
     const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
-    const { accessToken, refreshToken } = await generateTokenAndSetCookie(res, tokenPayload, meta)
+    const {
+      accessToken, refreshToken,
+      orgId: loginOrgId, roleKey: loginRoleKey,
+    } = await generateTokenAndSetCookie(res, tokenPayload, meta)
 
     await logSecurityEvent(adminId, 'LOGIN_GOOGLE', req)
+
+    const loginPermissions = await resolveLoginPermissions(adminId, loginOrgId)
 
     // Re-fetch full admin data for response
     const fullResult = await pool.query(
@@ -995,6 +996,9 @@ export const googleLoginAdmin = async (req, res) => {
         auth_providers: row.auth_providers,
         avatar: row.avatar,
         created_at: row.admin_created_at,
+        orgId: loginOrgId,
+        roleKey: loginRoleKey,
+        permissions: loginPermissions,
       },
       hall: row.hall_id
         ? {
@@ -1109,9 +1113,14 @@ export const githubLoginAdmin = async (req, res) => {
 
     const tokenPayload = { id: adminId, name: admin.admin_name || admin.name, email: admin.email || githubUser.email, role: admin.role || 'admin' }
     const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
-    const { accessToken, refreshToken } = await generateTokenAndSetCookie(res, tokenPayload, meta)
+    const {
+      accessToken, refreshToken,
+      orgId: loginOrgId, roleKey: loginRoleKey,
+    } = await generateTokenAndSetCookie(res, tokenPayload, meta)
 
     await logSecurityEvent(adminId, 'LOGIN_GITHUB', req)
+
+    const loginPermissions = await resolveLoginPermissions(adminId, loginOrgId)
 
     const fullResult = await pool.query(
       `SELECT a.id AS admin_id, a.name AS admin_name, a.email, a.phone, a.role,
@@ -1141,6 +1150,9 @@ export const githubLoginAdmin = async (req, res) => {
         auth_providers: row.auth_providers,
         avatar: row.avatar,
         created_at: row.admin_created_at,
+        orgId: loginOrgId,
+        roleKey: loginRoleKey,
+        permissions: loginPermissions,
       },
       hall: row.hall_id
         ? {

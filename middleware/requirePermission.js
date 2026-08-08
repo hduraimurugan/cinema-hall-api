@@ -48,46 +48,28 @@ export async function loadAdminPermissions(adminId, orgId) {
   return permissions;
 }
 
+/**
+ * Resolve the organization an admin acts within.
+ *
+ * PURE LOOKUP — returns null when there is no membership. It used to create
+ * an organization as a side effect, which meant a plain GET could silently
+ * provision a tenant. Org creation belongs solely to completeOnboarding.
+ *
+ * Membership is the single source of truth (owners are members too, via the
+ * 'owner' role), so one query covers owners and staff alike. Ownership wins
+ * the ordering when an admin belongs to more than one org.
+ */
 export async function resolveOrgId(adminId) {
-  // Check owner first
   const { rows } = await db.query(
-    `SELECT id FROM organizations WHERE owner_id = $1 AND is_active = TRUE LIMIT 1`,
+    `SELECT om.org_id
+     FROM organization_members om
+     JOIN organizations o ON o.id = om.org_id
+     WHERE om.admin_id = $1 AND om.status = 'active' AND o.is_active = TRUE
+     ORDER BY (o.owner_id = $1) DESC, om.created_at ASC
+     LIMIT 1`,
     [adminId]
   );
-  if (rows.length > 0) return rows[0].id;
-
-  // Check organization_members (staff / non-owner members)
-  const memberResult = await db.query(
-    `SELECT org_id FROM organization_members WHERE admin_id = $1 AND status = 'active' LIMIT 1`,
-    [adminId]
-  );
-  if (memberResult.rows.length > 0) return memberResult.rows[0].org_id;
-
-  try {
-    const admin = await db.query(
-      `SELECT id, name, email FROM cinema_admin_user WHERE id = $1`,
-      [adminId]
-    );
-    if (admin.rows.length === 0) return null;
-
-    const a = admin.rows[0];
-    const baseName = (a.name || a.email || 'admin').replace(/[^a-zA-Z0-9 ]/g, '');
-    const slugBase = baseName.toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-') || 'cinema';
-    const uniqueSlug = `${slugBase}-${a.id.toString().slice(0, 8)}`;
-    const orgName = baseName + "'s Cinema";
-
-    const org = await db.query(
-      `INSERT INTO organizations (name, slug, owner_id)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (slug) DO UPDATE SET owner_id = EXCLUDED.owner_id
-       RETURNING id`,
-      [orgName, uniqueSlug, a.id]
-    );
-    return org.rows[0].id;
-  } catch (err) {
-    logger.error("Failed to auto-create organization:", { error: err.message, adminId });
-    return null;
-  }
+  return rows.length > 0 ? rows[0].org_id : null;
 }
 
 function isMutationPerm(key) {
@@ -98,6 +80,31 @@ function isMutationPerm(key) {
   return ['create', 'update', 'delete', 'manage', 'cancel', 'settle', 'revoke', 'invite'].includes(action);
 }
 
+/**
+ * Reject a token minted before the caller's role was last edited.
+ *
+ * Access tokens live for a day, so without this a permission change would not
+ * take effect until the token expired. Returns an error string, or null if the
+ * token is current.
+ */
+async function checkPermissionsVersion(req, orgId) {
+  const tokenVersion = req.admin.permissionsVersion;
+  if (tokenVersion === undefined || tokenVersion === null) return null;
+
+  const { rows } = await db.query(
+    `SELECT r.permissions_version
+     FROM organization_members om
+     JOIN roles r ON r.id = om.role_id
+     WHERE om.admin_id = $1 AND om.org_id = $2 AND om.status = 'active'`,
+    [req.admin.id, orgId]
+  );
+  if (rows.length === 0) return null;
+
+  return rows[0].permissions_version !== tokenVersion
+    ? 'Your access has changed. Please sign in again.'
+    : null;
+}
+
 export function requirePermission(permissionKey) {
   return async (req, res, next) => {
     try {
@@ -105,9 +112,14 @@ export function requirePermission(permissionKey) {
         return next();
       }
 
-      const orgId = req.admin.orgId || await resolveOrgId(req.admin.id);
+      const orgId = req.orgId || req.admin.orgId || await resolveOrgId(req.admin.id);
       if (!orgId) {
         return res.status(403).json({ error: 'No organization found' });
+      }
+
+      const staleMessage = await checkPermissionsVersion(req, orgId);
+      if (staleMessage) {
+        return res.status(401).json({ code: 'TOKEN_STALE', error: staleMessage });
       }
 
       const permissions = await loadAdminPermissions(req.admin.id, orgId);
@@ -116,28 +128,22 @@ export function requirePermission(permissionKey) {
         return res.status(403).json({ error: 'Permission denied', required: permissionKey });
       }
 
+      // requireActiveHall already resolved the caller's scope for this hall
+      // (org-wide roles and the hall's creator get 'full'). Only fall back to
+      // a lookup on legacy routes that set currentHallId without it.
       if (req.currentHallId) {
-        const { rows } = await db.query(
-          `SELECT scope FROM hall_assignments ha
-           JOIN organization_members om ON om.id = ha.org_member_id
-           WHERE om.admin_id = $1 AND ha.hall_id = $2 AND om.status = 'active'`,
-          [req.admin.id, req.currentHallId]
-        );
+        let scope = req.hallScope;
 
-        if (rows.length === 0) {
-          const hallOwner = await db.query(
-            `SELECT id FROM cinema_hall WHERE id = $1 AND admin_id = $2`,
-            [req.currentHallId, req.admin.id]
+        if (scope === undefined) {
+          const { rows } = await db.query(
+            `SELECT ha.scope FROM hall_assignments ha
+             JOIN organization_members om ON om.id = ha.org_member_id
+             WHERE om.admin_id = $1 AND ha.hall_id = $2 AND om.status = 'active'`,
+            [req.admin.id, req.currentHallId]
           );
-          if (hallOwner.rows.length === 0) {
-            return res.status(403).json({ error: 'Hall access denied' });
-          }
-          req.hallScope = 'full';
-          return next();
+          scope = rows.length > 0 ? rows[0].scope : 'full';
+          req.hallScope = scope;
         }
-
-        const scope = rows[0].scope;
-        req.hallScope = scope;
 
         if (scope === 'read_only' && isMutationPerm(permissionKey)) {
           return res.status(403).json({ error: 'Read-only access', required: permissionKey });
