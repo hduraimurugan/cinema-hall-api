@@ -56,6 +56,25 @@ async function assertHallsInOrg(client, orgId, halls) {
   }
 }
 
+/**
+ * Assert the target member is not the organization's registered owner
+ * (organizations.owner_id). The owner must always remain an active member —
+ * changing their role/status or removing them would either break the
+ * "owner is a member" invariant migration_phase4 backfilled, or lock the
+ * owner out of their own organization.
+ */
+async function assertNotOrgOwner(orgId, memberId, code, action) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM organization_members om
+     JOIN organizations o ON o.id = om.org_id
+     WHERE om.id = $1 AND om.org_id = $2 AND om.admin_id = o.owner_id`,
+    [memberId, orgId]
+  );
+  if (rows.length > 0) {
+    throw new TeamServiceError(code, `The organization owner cannot be ${action}. Transfer ownership first.`);
+  }
+}
+
 export async function getOrgMembers(orgId, { search, page = 1, limit = 10 }) {
   const safeLimit = Math.min(Math.max(parseInt(limit) || 10, 1), 100);
   const offset = (Math.max(parseInt(page) || 1, 1) - 1) * safeLimit;
@@ -67,6 +86,7 @@ export async function getOrgMembers(orgId, { search, page = 1, limit = 10 }) {
         om.id, om.admin_id, om.status, om.joined_at, om.created_at,
         a.name, a.email, a.phone, a.last_login_at, a.avatar,
         r.id as role_id, r.key as role_key, r.label as role_label,
+        (om.admin_id = o.owner_id) as is_owner,
         COALESCE(
           (SELECT COUNT(*) FROM hall_assignments ha WHERE ha.org_member_id = om.id),
           0
@@ -74,6 +94,7 @@ export async function getOrgMembers(orgId, { search, page = 1, limit = 10 }) {
        FROM organization_members om
        JOIN cinema_admin_user a ON a.id = om.admin_id
        JOIN roles r ON r.id = om.role_id
+       JOIN organizations o ON o.id = om.org_id
        WHERE om.org_id = $1
          AND ($2::text IS NULL
            OR a.name ILIKE '%' || $2 || '%'
@@ -333,6 +354,10 @@ export async function acceptInvite(rawToken, newPassword) {
 }
 
 export async function updateMember(memberId, orgId, updates) {
+  if (updates.roleId !== undefined || updates.status !== undefined) {
+    await assertNotOrgOwner(orgId, memberId, 'CANNOT_MODIFY_OWNER', 'modified');
+  }
+
   const sets = [];
   const params = [];
   let idx = 1;
@@ -366,6 +391,8 @@ export async function updateMember(memberId, orgId, updates) {
 }
 
 export async function removeMember(memberId, orgId) {
+  await assertNotOrgOwner(orgId, memberId, 'CANNOT_REMOVE_OWNER', 'removed');
+
   const result = await pool.query(
     `UPDATE organization_members
         SET status = 'removed', removed_at = now()
@@ -395,6 +422,11 @@ export async function getMemberHalls(memberId, orgId) {
 }
 
 export async function assignHalls(memberId, orgId, halls) {
+  // Owners already get full access to every hall in their org via the
+  // org-wide-role path in requireActiveHall — editing their individual
+  // hall_assignments rows here has no real effect and only invites confusion.
+  await assertNotOrgOwner(orgId, memberId, 'CANNOT_MODIFY_OWNER', 'modified');
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -432,6 +464,8 @@ export async function assignHalls(memberId, orgId, halls) {
 }
 
 export async function removeHallAssignment(memberId, orgId, hallId) {
+  await assertNotOrgOwner(orgId, memberId, 'CANNOT_MODIFY_OWNER', 'modified');
+
   const result = await pool.query(
     `DELETE FROM hall_assignments ha
      USING organization_members om

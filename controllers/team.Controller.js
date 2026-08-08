@@ -10,6 +10,8 @@ const ERROR_STATUS = {
   HALL_NOT_IN_ORG: 400,
   INVALID_HALL: 400,
   ALREADY_MEMBER: 409,
+  CANNOT_MODIFY_OWNER: 403,
+  CANNOT_REMOVE_OWNER: 403,
 };
 
 /**
@@ -96,10 +98,12 @@ export const getMember = async (req, res) => {
     const { rows } = await pool.query(
       `SELECT om.id, om.admin_id, om.status, om.joined_at, om.created_at,
               a.name, a.email, a.phone, a.last_login_at, a.avatar, a.role as user_role,
-              r.id as role_id, r.key as role_key, r.label as role_label, r.description as role_description
+              r.id as role_id, r.key as role_key, r.label as role_label, r.description as role_description,
+              (om.admin_id = o.owner_id) as is_owner
        FROM organization_members om
        JOIN cinema_admin_user a ON a.id = om.admin_id
        JOIN roles r ON r.id = om.role_id
+       JOIN organizations o ON o.id = om.org_id
        WHERE om.id = $1 AND om.org_id = $2`,
       [req.params.id, orgId]
     );
@@ -147,6 +151,7 @@ export const removeMember = async (req, res) => {
 
     res.status(200).json({ message: 'Member removed successfully' });
   } catch (err) {
+    if (handleServiceError(err, res)) return;
     logger.error('❌ removeMember error:', { message: err.message });
     res.status(500).json({ error: 'Failed to remove member' });
   }
@@ -202,6 +207,7 @@ export const removeHallAssignment = async (req, res) => {
 
     res.status(200).json({ message: 'Hall assignment removed successfully' });
   } catch (err) {
+    if (handleServiceError(err, res)) return;
     logger.error('❌ removeHallAssignment error:', { message: err.message });
     res.status(500).json({ error: 'Failed to remove hall assignment' });
   }
