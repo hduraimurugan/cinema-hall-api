@@ -246,6 +246,11 @@ export const getBookingByPaymentId = async (req, res) => {
         m.title AS movie_title,
         sh.show_date,
         sh.start_time,
+        sc.name AS screen_name,
+        ch.name AS cinema_hall_name,
+        ch.location AS cinema_hall_location,
+        ch.latitude AS cinema_hall_latitude,
+        ch.longitude AS cinema_hall_longitude,
         ARRAY(
           SELECT (seat_data->>'row') || (seat_data->>'column')
           FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
@@ -255,6 +260,7 @@ export const getBookingByPaymentId = async (req, res) => {
       JOIN shows sh ON sh.id = b.show_id
       JOIN movies m ON m.id = sh.movie_id
       JOIN screens sc ON sc.id = sh.screen_id
+      JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
       WHERE b.payment_id = $1 AND b.customer_id = $2
     `, [payment_id, customer_id]);
 

@@ -27,7 +27,9 @@ export const getMoviesByLocation = async (req, res) => {
                 m.language,
                 m.status,
                 m.release_date,
-                m.created_at
+                m.created_at,
+                m.vote_average,
+                m.vote_count
             FROM movies m
             INNER JOIN shows sh ON m.id = sh.movie_id
             INNER JOIN screens sc ON sh.screen_id = sc.id
@@ -87,7 +89,9 @@ export const getMoviesByState = async (req, res) => {
                 m.language,
                 m.status,
                 m.release_date,
-                m.created_at
+                m.created_at,
+                m.vote_average,
+                m.vote_count
             FROM movies m
             INNER JOIN shows sh ON m.id = sh.movie_id
             INNER JOIN screens sc ON sh.screen_id = sc.id
