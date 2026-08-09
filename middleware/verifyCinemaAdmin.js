@@ -6,6 +6,14 @@ import { hashToken } from '../utils/hashToken.js';
 
 const isProduction = process.env.NODE_ENV === 'production'
 
+// Reads a Bearer token from the Authorization header, if present.
+// Used as a fallback for clients (e.g. React Native) that cannot rely on
+// httpOnly cookies the way the web app does.
+const bearerFrom = req =>
+  req.headers.authorization && req.headers.authorization.startsWith('Bearer ')
+    ? req.headers.authorization.split(' ')[1]
+    : null
+
 // ✅ Middleware to verify Access Token
 export const verifyCinemaAdminAccessToken = async (req, res, next) => {
   let token = req.cookies.accessToken
@@ -190,9 +198,9 @@ export const verifyScreenOwnership = async (req, res, next) => {
 
 // ✅ Middleware to verify Customer Access Token
 export const verifyCustomer = async (req, res, next) => {
-  const token = req.cookies.cusAccessToken
+  const token = req.cookies.cusAccessToken || bearerFrom(req)
   // console.log("Customer Access Token:", req.cookies);
-  
+
   if (!token) {
     return res.status(401).json({ message: 'Customer access token missing' })
   }
@@ -307,7 +315,7 @@ export const requireActiveHall = async (req, res, next) => {
 
 // ✅ Middleware to verify Customer Refresh Token
 export const verifyCustomerRefreshToken = async (req, res, next) => {
-  const token = req.cookies.cusRefreshToken
+  const token = req.cookies.cusRefreshToken || req.body?.refreshToken || bearerFrom(req)
   if (!token) {
     return res.status(401).json({ message: 'Customer refresh token missing' })
   }

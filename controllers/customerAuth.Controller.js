@@ -147,7 +147,7 @@ export const loginCustomer = async (req, res) => {
 
     const tokenPayload = { id: customer.id, name: customer.name, email: customer.email, role: 'customer' }
     const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
-    await generateCustomerTokenAndSetCookie(res, tokenPayload, meta)
+    const { accessToken, refreshToken } = await generateCustomerTokenAndSetCookie(res, tokenPayload, meta)
 
     res.status(200).json({
       message: 'Login successful',
@@ -159,6 +159,10 @@ export const loginCustomer = async (req, res) => {
         is_verified: customer.is_verified,
         created_at: customer.created_at,
       },
+      // Returned alongside the httpOnly cookies (which the web app relies on)
+      // so non-cookie clients such as the mobile app can authenticate too.
+      accessToken,
+      refreshToken,
     })
   } catch (err) {
     logger.error('❌ Customer login error:', { message: err.message })
@@ -169,7 +173,7 @@ export const loginCustomer = async (req, res) => {
 // ✅ Logout — revokes session in DB
 export const logoutCustomer = async (req, res) => {
   try {
-    const refreshToken = req.cookies.cusRefreshToken
+    const refreshToken = req.cookies.cusRefreshToken || req.body?.refreshToken
     if (refreshToken) {
       const tokenHash = hashToken(refreshToken)
       pool.query(
@@ -406,7 +410,9 @@ export const refreshCustomerToken = async (req, res) => {
       maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day
     })
 
-    res.status(200).json({ success: true })
+    // Also returned in the body for non-cookie clients (mobile app) — the
+    // cookie remains the source of truth for the web app.
+    res.status(200).json({ success: true, accessToken: newAccessToken })
   } catch (err) {
     logger.error('❌ Refresh token error:', { message: err.message })
     res.status(500).json({ error: 'Token refresh failed' })
@@ -553,7 +559,7 @@ export const googleLoginCustomer = async (req, res) => {
 
     const tokenPayload = { id: customer.id, name: customer.name || googleUser.name, email: customer.email, role: 'customer' }
     const meta = { ip: req.ip, userAgent: req.headers['user-agent'] }
-    await generateCustomerTokenAndSetCookie(res, tokenPayload, meta)
+    const { accessToken, refreshToken } = await generateCustomerTokenAndSetCookie(res, tokenPayload, meta)
 
     res.status(200).json({
       message: isNewAccount ? 'Account created successfully' : 'Login successful',
@@ -567,6 +573,8 @@ export const googleLoginCustomer = async (req, res) => {
         avatar: customer.avatar || googleUser.picture,
         created_at: customer.created_at,
       },
+      accessToken,
+      refreshToken,
     })
   } catch (err) {
     logger.error('❌ Customer Google login error:', { message: err.message })
