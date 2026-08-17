@@ -618,3 +618,67 @@ CREATE INDEX IF NOT EXISTS idx_admin_github_provider_id
 CREATE INDEX IF NOT EXISTS idx_customers_google_provider_id
   ON customers ((provider_ids->>'google'))
   WHERE provider_ids->>'google' IS NOT NULL;
+
+-- ============================
+-- SEED PERMISSION CATALOG
+-- ============================
+-- Mirrors migration_phase2_rbac.sql + migration_phase5_page_permissions.sql.
+-- requirePermission is wired into the admin routes, so an empty catalog would
+-- make every authenticated request 403 regardless of what the test intends.
+INSERT INTO permissions (key, label, resource) VALUES
+  ('movies.create',   'Create Movies',          'movies'),
+  ('movies.read',     'Read Movies',            'movies'),
+  ('movies.update',   'Update Movies',          'movies'),
+  ('movies.delete',   'Delete Movies',          'movies'),
+  ('shows.create',    'Create Shows',           'shows'),
+  ('shows.read',      'Read Shows',             'shows'),
+  ('shows.update',    'Update Shows',           'shows'),
+  ('shows.delete',    'Delete Shows',           'shows'),
+  ('shows.cancel',    'Cancel Shows',           'shows'),
+  ('screens.create',  'Create Screens',         'screens'),
+  ('screens.read',    'Read Screens',           'screens'),
+  ('screens.update',  'Update Screens',         'screens'),
+  ('screens.delete',  'Delete Screens',         'screens'),
+  ('bookings.read',   'Read Bookings',          'bookings'),
+  ('bookings.verify', 'Verify Bookings',        'bookings'),
+  ('bookings.cancel', 'Cancel Bookings',        'bookings'),
+  ('bookings.modify', 'Modify Bookings',        'bookings'),
+  ('refunds.create',  'Create Refunds',         'refunds'),
+  ('refunds.read',    'Read Refunds',           'refunds'),
+  ('refunds.settle',  'Settle Refunds',         'refunds'),
+  ('offers.create',   'Create Offers',          'offers'),
+  ('offers.read',     'Read Offers',            'offers'),
+  ('offers.update',   'Update Offers',          'offers'),
+  ('offers.delete',   'Delete Offers',          'offers'),
+  ('ads.create',      'Create Ads',             'ads'),
+  ('ads.read',        'Read Ads',               'ads'),
+  ('ads.update',      'Update Ads',             'ads'),
+  ('ads.delete',      'Delete Ads',             'ads'),
+  ('customers.read',  'Read Customers',         'customers'),
+  ('customers.manage','Manage Customers',       'customers'),
+  ('payment.read',    'Read Payment',           'payment'),
+  ('payment.manage',  'Manage Payment',         'payment'),
+  ('payment.settle',  'Settle Payment',         'payment'),
+  ('halls.read',      'Read Halls',             'halls'),
+  ('halls.manage',    'Manage Halls',           'halls'),
+  ('settings.org.read',   'Read Org Settings',     'settings'),
+  ('settings.org.update', 'Update Org Settings',   'settings'),
+  ('settings.hall.read',  'Read Hall Settings',    'settings'),
+  ('settings.hall.update','Update Hall Settings',  'settings'),
+  ('settings.user.read',  'Read User Settings',    'settings'),
+  ('settings.user.update','Update User Settings',  'settings'),
+  ('settings.advanced.manage','Manage Advanced Settings','settings'),
+  ('team.manage',    'Manage Team',             'team'),
+  ('team.invite',    'Invite Team Members',     'team'),
+  ('team.revoke',    'Revoke Team Members',     'team'),
+  ('roles.manage',   'Manage Roles',            'roles'),
+  ('roles.read',     'Read Roles',              'roles'),
+  ('audit.view',     'View Audit Logs',         'audit'),
+  ('analytics.view', 'View Analytics',          'analytics'),
+  ('analytics.manage','Manage Analytics',       'analytics'),
+  ('dashboard.view', 'View Dashboard',          'dashboard'),
+  ('verify-ticket.use','Use Verify Ticket',     'verify-ticket'),
+  ('integrations.manage','Manage Integrations', 'integrations'),
+  ('billing.manage', 'Manage Billing',          'billing'),
+  ('org.delete',     'Delete Organization',     'org')
+ON CONFLICT (key) DO NOTHING;

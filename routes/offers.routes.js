@@ -12,7 +12,9 @@ import {
 import {
     verifySuperAdmin,
     verifyCustomer,
+    verifyCinemaAdminAccessToken,
 } from "../middleware/verifyCinemaAdmin.js";
+import { requirePermission } from "../middleware/requirePermission.js";
 
 const router = express.Router();
 
@@ -20,12 +22,14 @@ const router = express.Router();
 router.get("/active", verifyCustomer, getActiveOffers);
 router.post("/validate", verifyCustomer, validateOffer);
 
-// ── Admin routes (superAdmin only) ──────────────────────────
+// ── Admin routes ────────────────────────────────────────────
+// Offers are hall-scoped (offers.cinema_hall_id), so they are granted by
+// permission rather than reserved for the platform superAdmin.
 router.get("/cinema-halls", verifySuperAdmin, getAllCinemaHalls);
-router.get("/", verifySuperAdmin, getAllOffers);
-router.get("/:id", verifySuperAdmin, getOfferById);
-router.post("/create", verifySuperAdmin, createOffer);
-router.put("/update/:id", verifySuperAdmin, updateOffer);
-router.delete("/delete/:id", verifySuperAdmin, deleteOffer);
+router.get("/", verifyCinemaAdminAccessToken, requirePermission('offers.read'), getAllOffers);
+router.get("/:id", verifyCinemaAdminAccessToken, requirePermission('offers.read'), getOfferById);
+router.post("/create", verifyCinemaAdminAccessToken, requirePermission('offers.create'), createOffer);
+router.put("/update/:id", verifyCinemaAdminAccessToken, requirePermission('offers.update'), updateOffer);
+router.delete("/delete/:id", verifyCinemaAdminAccessToken, requirePermission('offers.delete'), deleteOffer);
 
 export default router;

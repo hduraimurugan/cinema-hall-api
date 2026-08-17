@@ -29,6 +29,20 @@ export function clearPermissionCache(adminId, orgId) {
   permissionCache.delete(key);
 }
 
+/**
+ * Drop every cached permission set belonging to an organization.
+ *
+ * Editing a role changes the effective permissions of every member holding
+ * it, but the cache is keyed per-admin, so clearing one entry is not enough —
+ * without this a role edit stays invisible for up to CACHE_TTL.
+ */
+export function clearOrgPermissionCache(orgId) {
+  const suffix = `:${orgId}`;
+  for (const key of permissionCache.keys()) {
+    if (key.endsWith(suffix)) permissionCache.delete(key);
+  }
+}
+
 export async function loadAdminPermissions(adminId, orgId) {
   const cached = getCached(adminId, orgId);
   if (cached) return cached;
@@ -56,8 +70,12 @@ export async function loadAdminPermissions(adminId, orgId) {
  * provision a tenant. Org creation belongs solely to completeOnboarding.
  *
  * Membership is the single source of truth (owners are members too, via the
- * 'owner' role), so one query covers owners and staff alike. Ownership wins
- * the ordering when an admin belongs to more than one org.
+ * 'owner' role), so one query covers owners and staff alike.
+ *
+ * Ordering must stay in step with resolveOrgContext in
+ * utils/generateTokenAndSetCookie.js: an org holding halls outranks an empty
+ * one, so a hall-less shell org a member happens to own cannot hijack their
+ * session; ownership then decides between two real orgs.
  */
 export async function resolveOrgId(adminId) {
   const { rows } = await db.query(
@@ -65,7 +83,9 @@ export async function resolveOrgId(adminId) {
      FROM organization_members om
      JOIN organizations o ON o.id = om.org_id
      WHERE om.admin_id = $1 AND om.status = 'active' AND o.is_active = TRUE
-     ORDER BY (o.owner_id = $1) DESC, om.created_at ASC
+     ORDER BY EXISTS (SELECT 1 FROM cinema_hall ch WHERE ch.org_id = o.id) DESC,
+              (o.owner_id = $1) DESC,
+              om.created_at ASC
      LIMIT 1`,
     [adminId]
   );

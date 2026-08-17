@@ -6,6 +6,7 @@ import {
     getPaymentOrders,
 } from "../controllers/payment.Controller.js";
 import { verifyCustomer, verifyCinemaAdminAccessToken, requireActiveHall } from "../middleware/verifyCinemaAdmin.js";
+import { requirePermission } from "../middleware/requirePermission.js";
 
 const router = express.Router();
 
@@ -34,6 +35,6 @@ router.post(
 );
 
 // Admin routes
-router.get("/admin/orders", verifyCinemaAdminAccessToken, requireActiveHall, getPaymentOrders);
+router.get("/admin/orders", verifyCinemaAdminAccessToken, requireActiveHall, requirePermission('payment.read'), getPaymentOrders);
 
 export default router;

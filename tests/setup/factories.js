@@ -62,6 +62,25 @@ export async function createOrganization(adminId, overrides = {}) {
     )
   }
 
+  // Grant the seeded permission sets. Without these the roles exist but hold
+  // nothing, and every route behind requirePermission answers 403 — which is
+  // correct behaviour, just not the state a fixture means to set up.
+  await query(
+    `INSERT INTO role_permissions (role_id, permission_id)
+     SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+     WHERE r.org_id = $1 AND r.key = 'owner'
+     ON CONFLICT DO NOTHING`,
+    [orgId]
+  )
+  await query(
+    `INSERT INTO role_permissions (role_id, permission_id)
+     SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+     WHERE r.org_id = $1 AND r.key = 'admin'
+       AND p.key NOT IN ('org.delete', 'roles.manage', 'billing.manage')
+     ON CONFLICT DO NOTHING`,
+    [orgId]
+  )
+
   const ownerRole = await query(
     `SELECT id FROM roles WHERE org_id = $1 AND key = 'owner'`,
     [orgId]

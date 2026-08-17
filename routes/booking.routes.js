@@ -10,6 +10,7 @@ import {
     verifyBookingById
 } from "../controllers/booking.Controller.js";
 import { verifyCustomer, verifyCinemaAdminAccessToken, requireActiveHall } from "../middleware/verifyCinemaAdmin.js";
+import { requirePermission } from "../middleware/requirePermission.js";
 
 const router = express.Router();
 
@@ -21,8 +22,8 @@ router.get("/by-payment/:payment_id", verifyCustomer, getBookingByPaymentId);
 router.get("/my-bookings", verifyCustomer, getMyBookings);
 
 // Admin routes
-router.get("/admin/all", verifyCinemaAdminAccessToken, requireActiveHall, getCinemaHallBookings);
-router.get("/admin/verify/:booking_id", verifyCinemaAdminAccessToken, requireActiveHall, verifyBookingById);
+router.get("/admin/all", verifyCinemaAdminAccessToken, requireActiveHall, requirePermission('bookings.read'), getCinemaHallBookings);
+router.get("/admin/verify/:booking_id", verifyCinemaAdminAccessToken, requireActiveHall, requirePermission('bookings.verify'), verifyBookingById);
 
 // Customer: get single booking by ID (must be last to avoid shadowing other routes)
 router.get("/:booking_id", verifyCustomer, getBookingDetails);

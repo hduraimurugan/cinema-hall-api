@@ -10,16 +10,20 @@ import {
   runBackdropMigration
 } from '../controllers/movies.Controller.js'
 
-import { verifySuperAdmin } from '../middleware/verifyCinemaAdmin.js'
+import { verifySuperAdmin, verifyCinemaAdminAccessToken } from '../middleware/verifyCinemaAdmin.js'
+import { requirePermission } from '../middleware/requirePermission.js'
 
 const router = express.Router()
 
+// requirePermission lets superAdmin through unconditionally, so swapping
+// verifySuperAdmin for it widens access to roles the owner has granted
+// without locking the platform admin out.
 router.get('/migrate-backdrops', runBackdropMigration)
-router.post('/add', verifySuperAdmin, addMovie)
-router.put('/edit/:movieId', verifySuperAdmin, editMovie)
-router.delete('/delete/:movieId', verifySuperAdmin, deleteMovie)
+router.post('/add', verifyCinemaAdminAccessToken, requirePermission('movies.create'), addMovie)
+router.put('/edit/:movieId', verifyCinemaAdminAccessToken, requirePermission('movies.update'), editMovie)
+router.delete('/delete/:movieId', verifyCinemaAdminAccessToken, requirePermission('movies.delete'), deleteMovie)
 router.get('/tmdb-ids', verifySuperAdmin, getMovieTmdbIds) // must be before /:id
-router.get('/', getAllMovies)
+router.get('/', verifyCinemaAdminAccessToken, requirePermission('movies.read'), getAllMovies)
 router.get('/proxy-image', async (req, res) => {
   const imageUrl = req.query.url;
   if (!imageUrl) {
@@ -44,7 +48,7 @@ router.get('/proxy-image', async (req, res) => {
   }
 });
 
-router.get("/:id", getMovieById); // GET /movies/:id
-router.patch('/:movieId/status', verifySuperAdmin, updateMovieStatus)
+router.get("/:id", verifyCinemaAdminAccessToken, requirePermission('movies.read'), getMovieById); // GET /movies/:id
+router.patch('/:movieId/status', verifyCinemaAdminAccessToken, requirePermission('movies.update'), updateMovieStatus)
 
 export default router

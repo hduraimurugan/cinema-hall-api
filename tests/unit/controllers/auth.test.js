@@ -13,6 +13,11 @@ vi.mock('../../../utils/generateTokenAndSetCookie.js', () => ({
   generateTokenAndSetCookie: vi.fn(() =>
     Promise.resolve({ accessToken: 'mock-at', refreshToken: 'mock-rt' })
   ),
+  // refreshCinemaAdminToken re-reads org context on every refresh instead of
+  // copying it out of the expiring token, so the mock must provide it too.
+  resolveOrgContext: vi.fn(() =>
+    Promise.resolve({ orgId: null, roleKey: null, permissionsVersion: null })
+  ),
 }))
 
 vi.mock('../../../utils/oauthProviders.js', () => ({

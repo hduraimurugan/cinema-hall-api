@@ -482,7 +482,8 @@ export async function removeHallAssignment(memberId, orgId, hallId) {
 export async function getOrgRoles(orgId) {
   const { rows } = await pool.query(
     `SELECT r.id, r.key, r.label, r.description, r.is_system, r.created_at,
-            COALESCE(m.member_count, 0)::int as member_count
+            COALESCE(m.member_count, 0)::int as member_count,
+            COALESCE(p.permission_count, 0)::int as permission_count
      FROM roles r
      LEFT JOIN (
        SELECT role_id, COUNT(*) as member_count
@@ -490,6 +491,11 @@ export async function getOrgRoles(orgId) {
        WHERE org_id = $1 AND status IN ('active', 'suspended')
        GROUP BY role_id
      ) m ON m.role_id = r.id
+     LEFT JOIN (
+       SELECT role_id, COUNT(*) as permission_count
+       FROM role_permissions
+       GROUP BY role_id
+     ) p ON p.role_id = r.id
      WHERE r.org_id = $1
      ORDER BY r.is_system DESC, r.label ASC`,
     [orgId]

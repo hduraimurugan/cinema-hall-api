@@ -1,7 +1,60 @@
 import db from '../db.js';
 import logger from '../utils/logger.js';
 import * as teamService from '../services/team.service.js';
-import { resolveOrgId } from '../middleware/requirePermission.js';
+import {
+  resolveOrgId,
+  loadAdminPermissions,
+  clearOrgPermissionCache,
+} from '../middleware/requirePermission.js';
+
+/**
+ * Validate a requested permission set before it is written to a role.
+ *
+ * Two rules, in order:
+ *  - every key must exist in the catalog (silently dropping unknown keys used
+ *    to let a drifted UI wipe permissions it did not know how to render)
+ *  - the caller may not grant a permission they do not themselves hold, or
+ *    anyone with roles.manage could escalate to billing.manage / org.delete
+ *
+ * Returns { error, status } on rejection, or { ids } on success.
+ */
+async function resolvePermissionIds(client, req, orgId, permissionKeys) {
+  const { rows } = await client.query(
+    `SELECT id, key FROM permissions WHERE key = ANY($1)`,
+    [permissionKeys]
+  );
+
+  const found = new Set(rows.map(r => r.key));
+  const unknown = permissionKeys.filter(k => !found.has(k));
+  if (unknown.length > 0) {
+    return { status: 400, error: `Unknown permission keys: ${unknown.join(', ')}` };
+  }
+
+  if (req.admin.role !== 'superAdmin') {
+    const mine = await loadAdminPermissions(req.admin.id, orgId);
+    const escalated = permissionKeys.filter(k => !mine.has(k));
+    if (escalated.length > 0) {
+      return {
+        status: 403,
+        error: `You cannot grant permissions you do not hold: ${escalated.join(', ')}`,
+      };
+    }
+  }
+
+  return { ids: rows.map(r => r.id) };
+}
+
+export const listPermissions = async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT id, key, label, resource FROM permissions ORDER BY resource, key`
+    );
+    res.status(200).json({ permissions: rows });
+  } catch (err) {
+    logger.error('❌ listPermissions error:', { message: err.message });
+    res.status(500).json({ error: 'Failed to list permissions' });
+  }
+};
 
 export const listRoles = async (req, res) => {
   try {
@@ -49,19 +102,32 @@ export const createRole = async (req, res) => {
 
       let permsToAssign;
       if (cloneFrom) {
+        // The dialog sends a role id; older callers send a role key. Accept both.
         const cloneResult = await client.query(
-          `SELECT permission_id FROM role_permissions WHERE role_id = (
-            SELECT id FROM roles WHERE org_id = $1 AND key = $2
-          )`,
-          [orgId, cloneFrom]
+          `SELECT p.key
+           FROM role_permissions rp
+           JOIN roles r ON r.id = rp.role_id
+           JOIN permissions p ON p.id = rp.permission_id
+           WHERE r.org_id = $1 AND (r.id::text = $2 OR r.key = $2)`,
+          [orgId, String(cloneFrom)]
         );
-        permsToAssign = cloneResult.rows.map(r => r.permission_id);
+        // Route the cloned set through the same guard — otherwise cloning the
+        // owner role would be a free escalation to every permission.
+        const resolved = await resolvePermissionIds(
+          client, req, orgId, cloneResult.rows.map(r => r.key)
+        );
+        if (resolved.error) {
+          await client.query('ROLLBACK');
+          return res.status(resolved.status).json({ error: resolved.error });
+        }
+        permsToAssign = resolved.ids;
       } else if (permissionKeys && Array.isArray(permissionKeys) && permissionKeys.length > 0) {
-        const permResult = await client.query(
-          `SELECT id FROM permissions WHERE key = ANY($1)`,
-          [permissionKeys]
-        );
-        permsToAssign = permResult.rows.map(r => r.id);
+        const resolved = await resolvePermissionIds(client, req, orgId, permissionKeys);
+        if (resolved.error) {
+          await client.query('ROLLBACK');
+          return res.status(resolved.status).json({ error: resolved.error });
+        }
+        permsToAssign = resolved.ids;
       } else {
         permsToAssign = [];
       }
@@ -74,6 +140,7 @@ export const createRole = async (req, res) => {
       }
 
       await client.query('COMMIT');
+      clearOrgPermissionCache(orgId);
 
       const fullRole = await client.query(
         `SELECT r.id, r.key, r.label, r.description, r.is_system, r.created_at,
@@ -146,7 +213,7 @@ export const updateRole = async (req, res) => {
       await client.query('BEGIN');
 
       const roleResult = await client.query(
-        `SELECT id, is_system FROM roles WHERE id = $1 AND org_id = $2`,
+        `SELECT id, key, is_system FROM roles WHERE id = $1 AND org_id = $2`,
         [req.params.id, orgId]
       );
       if (roleResult.rows.length === 0) {
@@ -155,6 +222,16 @@ export const updateRole = async (req, res) => {
       }
 
       const role = roleResult.rows[0];
+
+      // The owner role is the org's recovery path. Letting its permissions be
+      // edited means an owner can strip roles.manage from themselves and lock
+      // the organization out permanently. Renaming it stays allowed.
+      if (role.key === 'owner' && permissionKeys !== undefined) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'The Owner role always has full access and cannot be edited.',
+        });
+      }
 
       const sets = [];
       const params = [];
@@ -172,30 +249,38 @@ export const updateRole = async (req, res) => {
       if (sets.length > 0) {
         params.push(role.id);
         await client.query(
-          `UPDATE roles SET ${sets.join(', ')}, permissions_version = permissions_version + 1, updated_at = now() WHERE id = $${idx}`,
+          `UPDATE roles SET ${sets.join(', ')}, updated_at = now() WHERE id = $${idx}`,
           params
         );
       }
 
       if (permissionKeys && Array.isArray(permissionKeys)) {
+        const resolved = await resolvePermissionIds(client, req, orgId, permissionKeys);
+        if (resolved.error) {
+          await client.query('ROLLBACK');
+          return res.status(resolved.status).json({ error: resolved.error });
+        }
+
         await client.query(`DELETE FROM role_permissions WHERE role_id = $1`, [role.id]);
 
-        if (permissionKeys.length > 0) {
-          const permResult = await client.query(
-            `SELECT id FROM permissions WHERE key = ANY($1)`,
-            [permissionKeys]
+        for (const permId of resolved.ids) {
+          await client.query(
+            `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [role.id, permId]
           );
-
-          for (const permId of permResult.rows.map(r => r.id)) {
-            await client.query(
-              `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-              [role.id, permId]
-            );
-          }
         }
+
+        // Bump only on a permission change — this is what invalidates the access
+        // tokens of everyone holding the role. It used to sit inside the
+        // label/description branch, so a permissions-only edit never took effect.
+        await client.query(
+          `UPDATE roles SET permissions_version = permissions_version + 1, updated_at = now() WHERE id = $1`,
+          [role.id]
+        );
       }
 
       await client.query('COMMIT');
+      clearOrgPermissionCache(orgId);
 
       const fullRole = await db.query(
         `SELECT r.id, r.key, r.label, r.description, r.is_system, r.permissions_version, r.created_at, r.updated_at,
@@ -253,6 +338,7 @@ export const deleteRole = async (req, res) => {
     }
 
     await db.query(`DELETE FROM roles WHERE id = $1`, [role.id]);
+    clearOrgPermissionCache(orgId);
     res.status(200).json({ message: 'Role deleted successfully' });
   } catch (err) {
     logger.error('❌ deleteRole error:', { message: err.message });
@@ -284,6 +370,22 @@ export const cloneRole = async (req, res) => {
       }
       const sourceId = sourceResult.rows[0].id;
 
+      // Cloning copies a permission set wholesale, so it needs the same
+      // escalation guard as an explicit grant.
+      const sourceKeys = await client.query(
+        `SELECT p.key FROM role_permissions rp
+         JOIN permissions p ON p.id = rp.permission_id
+         WHERE rp.role_id = $1`,
+        [sourceId]
+      );
+      const resolved = await resolvePermissionIds(
+        client, req, orgId, sourceKeys.rows.map(r => r.key)
+      );
+      if (resolved.error) {
+        await client.query('ROLLBACK');
+        return res.status(resolved.status).json({ error: resolved.error });
+      }
+
       const existing = await client.query(
         `SELECT id FROM roles WHERE org_id = $1 AND key = $2`,
         [orgId, key]
@@ -301,13 +403,15 @@ export const cloneRole = async (req, res) => {
       );
       const newRoleId = roleResult.rows[0].id;
 
-      await client.query(
-        `INSERT INTO role_permissions (role_id, permission_id)
-         SELECT $1, permission_id FROM role_permissions WHERE role_id = $2`,
-        [newRoleId, sourceId]
-      );
+      for (const permId of resolved.ids) {
+        await client.query(
+          `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [newRoleId, permId]
+        );
+      }
 
       await client.query('COMMIT');
+      clearOrgPermissionCache(orgId);
 
       const fullRole = await db.query(
         `SELECT r.id, r.key, r.label, r.description, r.is_system, r.created_at,

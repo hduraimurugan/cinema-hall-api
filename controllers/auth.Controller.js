@@ -1,7 +1,7 @@
 import pool from '../db.js'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
-import { generateTokenAndSetCookie } from '../utils/generateTokenAndSetCookie.js'
+import { generateTokenAndSetCookie, resolveOrgContext } from '../utils/generateTokenAndSetCookie.js'
 import { generateVerificationToken } from '../utils/generateVerificationToken.js'
 import { hashToken } from '../utils/hashToken.js'
 import { validatePassword } from '../utils/passwordPolicy.js'
@@ -57,6 +57,62 @@ const resolveLoginPermissions = async (adminId, orgId) => {
   } catch (e) {
     logger.error('Failed to load permissions on login:', { message: e.message })
     return []
+  }
+}
+
+/**
+ * Pick a default hall for a session, using the same access rule as
+ * requireActiveHall: a hall the admin owns, one explicitly assigned to them,
+ * or — for org-wide roles — any hall in the org.
+ *
+ * Login and /me used to resolve this with `LEFT JOIN cinema_hall ON admin_id`,
+ * which only ever matches the hall's creator. An invited member therefore got
+ * hall: null even with halls assigned to them, so the client announced
+ * "set up your first cinema hall" to someone who already had two.
+ *
+ * Never throws — a hall lookup must not block an otherwise valid login.
+ */
+const resolveDefaultHall = async (adminId, orgId) => {
+  if (!orgId) return null
+  try {
+    const { rows } = await pool.query(
+      `SELECT ch.id, ch.name, ch.location, ch.district, ch.state,
+              ch.latitude, ch.longitude, ch.created_at
+       FROM cinema_hall ch
+       WHERE ch.org_id = $2
+         AND (
+           ch.admin_id = $1
+           OR EXISTS (
+             SELECT 1 FROM hall_assignments ha
+             JOIN organization_members om ON om.id = ha.org_member_id
+             WHERE ha.hall_id = ch.id AND om.admin_id = $1 AND om.status = 'active'
+           )
+           OR EXISTS (
+             SELECT 1 FROM organization_members om
+             JOIN roles r ON r.id = om.role_id
+             WHERE om.admin_id = $1 AND om.org_id = $2
+               AND om.status = 'active' AND r.key IN ('owner', 'admin')
+           )
+         )
+       ORDER BY (ch.admin_id = $1) DESC, ch.created_at ASC
+       LIMIT 1`,
+      [adminId, orgId]
+    )
+    if (rows.length === 0) return null
+    const h = rows[0]
+    return {
+      id: h.id,
+      name: h.name,
+      location: h.location,
+      district: h.district,
+      state: h.state,
+      latitude: h.latitude ? parseFloat(h.latitude) : null,
+      longitude: h.longitude ? parseFloat(h.longitude) : null,
+      created_at: h.created_at,
+    }
+  } catch (e) {
+    logger.error('Failed to resolve default hall:', { message: e.message })
+    return null
   }
 }
 
@@ -325,6 +381,7 @@ export const loginCinemaAdmin = async (req, res) => {
     await logSecurityEvent(admin.admin_id, 'LOGIN_SUCCESS', req)
 
     const loginPermissions = await resolveLoginPermissions(admin.admin_id, loginOrgId)
+    const loginHall = await resolveDefaultHall(admin.admin_id, loginOrgId)
 
     res.status(200).json({
       message: 'Login successful',
@@ -342,18 +399,7 @@ export const loginCinemaAdmin = async (req, res) => {
         roleKey: loginRoleKey,
         permissions: loginPermissions,
       },
-      hall: admin.hall_id
-        ? {
-            id: admin.hall_id,
-            name: admin.hall_name,
-            location: admin.hall_location,
-            district: admin.hall_district,
-            state: admin.hall_state,
-            latitude: admin.hall_latitude ? parseFloat(admin.hall_latitude) : null,
-            longitude: admin.hall_longitude ? parseFloat(admin.hall_longitude) : null,
-            created_at: admin.hall_created_at,
-          }
-        : null,
+      hall: loginHall,
     })
   } catch (err) {
     logger.error('❌ Login error:', { message: err.message })
@@ -371,8 +417,13 @@ export const refreshCinemaAdminToken = async (req, res) => {
 
     const admin = result.rows[0]
 
+    // Re-read the org context instead of copying it out of the old token.
+    // A refresh is how a client recovers from TOKEN_STALE, so carrying the
+    // stale permissionsVersion forward would loop forever.
+    const { orgId, roleKey, permissionsVersion } = await resolveOrgContext(adminId)
+
     const newAccessToken = jwt.sign(
-      { id: admin.id, name: admin.name, email: admin.email, role: admin.role, orgId: req.admin.orgId, roleKey: req.admin.roleKey, permissionsVersion: req.admin.permissionsVersion },
+      { id: admin.id, name: admin.name, email: admin.email, role: admin.role, orgId, roleKey, permissionsVersion },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     )
@@ -405,12 +456,9 @@ export const getCinemaAdminMe = async (req, res) => {
         h.id AS hall_id, h.name AS hall_name, h.location AS hall_location,
         h.district AS hall_district, h.state AS hall_state,
         h.latitude AS hall_latitude, h.longitude AS hall_longitude,
-        h.created_at AS hall_created_at,
-        om.org_id, r.key AS role_key, r.permissions_version
+        h.created_at AS hall_created_at
        FROM cinema_admin_user a
        LEFT JOIN cinema_hall h ON h.admin_id = a.id
-       LEFT JOIN organization_members om ON om.admin_id = a.id AND om.status = 'active'
-       LEFT JOIN roles r ON r.id = om.role_id
        WHERE a.id = $1`,
       [adminId]
     )
@@ -420,7 +468,16 @@ export const getCinemaAdminMe = async (req, res) => {
     }
 
     const row = result.rows[0]
-    const orgId = row.org_id
+
+    // Org context comes from the shared resolver, not from a LEFT JOIN on
+    // organization_members. That join had no ORDER BY or LIMIT, so an admin in
+    // two orgs got whichever row Postgres happened to return first — /me could
+    // disagree with the token minted at login, and the answer could even change
+    // between two refreshes.
+    const { orgId, roleKey, permissionsVersion } = await resolveOrgContext(adminId)
+
+    // Resolved through access, not ownership — see resolveDefaultHall.
+    const hall = await resolveDefaultHall(adminId, orgId)
 
     let permissions = []
     if (orgId) {
@@ -448,22 +505,11 @@ export const getCinemaAdminMe = async (req, res) => {
         has_password: row.has_password,
         created_at: row.admin_created_at,
         orgId,
-        roleKey: row.role_key,
-        permissionsVersion: row.permissions_version,
+        roleKey,
+        permissionsVersion,
         permissions,
       },
-      hall: row.hall_id
-        ? {
-            id: row.hall_id,
-            name: row.hall_name,
-            location: row.hall_location,
-            district: row.hall_district,
-            state: row.hall_state,
-            latitude: row.hall_latitude ? parseFloat(row.hall_latitude) : null,
-            longitude: row.hall_longitude ? parseFloat(row.hall_longitude) : null,
-            created_at: row.hall_created_at,
-          }
-        : null,
+      hall,
     })
   } catch (err) {
     logger.error('❌ getMe error:', { message: err.message })
@@ -1000,18 +1046,7 @@ export const googleLoginAdmin = async (req, res) => {
         roleKey: loginRoleKey,
         permissions: loginPermissions,
       },
-      hall: row.hall_id
-        ? {
-            id: row.hall_id,
-            name: row.hall_name,
-            location: row.hall_location,
-            district: row.hall_district,
-            state: row.hall_state,
-            latitude: row.hall_latitude ? parseFloat(row.hall_latitude) : null,
-            longitude: row.hall_longitude ? parseFloat(row.hall_longitude) : null,
-            created_at: row.hall_created_at,
-          }
-        : null,
+      hall: await resolveDefaultHall(adminId, loginOrgId),
     })
   } catch (err) {
     logger.error('❌ Google login error:', { message: err.message })
@@ -1154,18 +1189,7 @@ export const githubLoginAdmin = async (req, res) => {
         roleKey: loginRoleKey,
         permissions: loginPermissions,
       },
-      hall: row.hall_id
-        ? {
-            id: row.hall_id,
-            name: row.hall_name,
-            location: row.hall_location,
-            district: row.hall_district,
-            state: row.hall_state,
-            latitude: row.hall_latitude ? parseFloat(row.hall_latitude) : null,
-            longitude: row.hall_longitude ? parseFloat(row.hall_longitude) : null,
-            created_at: row.hall_created_at,
-          }
-        : null,
+      hall: await resolveDefaultHall(adminId, loginOrgId),
     })
   } catch (err) {
     logger.error('❌ GitHub login error:', { message: err.message })
@@ -1472,6 +1496,7 @@ export const completeOnboarding = async (req, res) => {
            'refunds.create', 'refunds.read', 'refunds.settle',
            'movies.read', 'movies.update',
            'settings.hall.read', 'settings.hall.update',
+           'halls.read', 'halls.manage',
            'customers.read', 'dashboard.view'
          )
          ON CONFLICT DO NOTHING`,
@@ -1483,7 +1508,7 @@ export const completeOnboarding = async (req, res) => {
       await client.query(
         `INSERT INTO role_permissions (role_id, permission_id)
          SELECT $1, p.id FROM permissions p
-         WHERE p.key IN ('bookings.read', 'bookings.cancel', 'refunds.create', 'refunds.read', 'dashboard.view', 'customers.read')
+         WHERE p.key IN ('bookings.read', 'bookings.cancel', 'refunds.create', 'refunds.read', 'dashboard.view', 'customers.read', 'halls.read')
          ON CONFLICT DO NOTHING`,
         [rolesMap['sales']]
       );
@@ -1493,7 +1518,7 @@ export const completeOnboarding = async (req, res) => {
       await client.query(
         `INSERT INTO role_permissions (role_id, permission_id)
          SELECT $1, p.id FROM permissions p
-         WHERE p.key IN ('bookings.read', 'payment.read', 'refunds.create', 'refunds.read', 'refunds.settle', 'analytics.view', 'dashboard.view', 'customers.read')
+         WHERE p.key IN ('bookings.read', 'payment.read', 'refunds.create', 'refunds.read', 'refunds.settle', 'analytics.view', 'dashboard.view', 'customers.read', 'halls.read')
          ON CONFLICT DO NOTHING`,
         [rolesMap['finance']]
       );
@@ -1503,7 +1528,7 @@ export const completeOnboarding = async (req, res) => {
       await client.query(
         `INSERT INTO role_permissions (role_id, permission_id)
          SELECT $1, p.id FROM permissions p
-         WHERE p.key IN ('offers.create', 'offers.read', 'offers.update', 'offers.delete', 'ads.create', 'ads.read', 'ads.update', 'ads.delete', 'movies.read', 'customers.read', 'analytics.view', 'dashboard.view')
+         WHERE p.key IN ('offers.create', 'offers.read', 'offers.update', 'offers.delete', 'ads.create', 'ads.read', 'ads.update', 'ads.delete', 'movies.read', 'customers.read', 'analytics.view', 'dashboard.view', 'halls.read')
          ON CONFLICT DO NOTHING`,
         [rolesMap['marketing']]
       );
@@ -1513,7 +1538,7 @@ export const completeOnboarding = async (req, res) => {
       await client.query(
         `INSERT INTO role_permissions (role_id, permission_id)
          SELECT $1, p.id FROM permissions p
-         WHERE p.key IN ('shows.read', 'bookings.read', 'bookings.verify', 'verify-ticket.use', 'customers.read', 'dashboard.view')
+         WHERE p.key IN ('shows.read', 'bookings.read', 'bookings.verify', 'verify-ticket.use', 'customers.read', 'dashboard.view', 'halls.read')
          ON CONFLICT DO NOTHING`,
         [rolesMap['ticket_operator']]
       );
