@@ -4,6 +4,11 @@
 
 -- 1. Ensure organizations exist for any admin user who owns a hall but has no organization.
 -- (This ensures the backfill has organizations to map to.)
+--
+-- Narrower than the phase 1 backfill — it only covers admins who already own a
+-- hall — but it still must exclude platform 'staff'. A staff member who happens
+-- to be a hall's admin_id would otherwise be handed an organization of their
+-- own, and owning one outranks their real membership at sign-in.
 INSERT INTO organizations (name, slug, owner_id)
 SELECT
   COALESCE(cau.name, cau.email) || '''s Cinema',
@@ -11,6 +16,7 @@ SELECT
   cau.id
 FROM cinema_admin_user cau
 WHERE cau.id IN (SELECT DISTINCT admin_id FROM cinema_hall)
+  AND cau.role <> 'staff'
   AND NOT EXISTS (SELECT 1 FROM organizations o WHERE o.owner_id = cau.id)
 ON CONFLICT (slug) DO NOTHING;
 

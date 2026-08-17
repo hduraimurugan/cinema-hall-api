@@ -20,16 +20,52 @@ CREATE TABLE IF NOT EXISTS organizations (
   updated_at        TIMESTAMPTZ DEFAULT now()
 );
 
--- ── Auto-create an org for every existing admin who does not have one ──
-INSERT INTO organizations (name, slug, owner_id)
-SELECT
-  COALESCE(cau.name, cau.email) || '''s Cinema',
-  LOWER(REPLACE(COALESCE(cau.name, cau.email), ' ', '-')) || '-' || LEFT(cau.id::text, 8),
-  cau.id
-FROM cinema_admin_user cau
-WHERE NOT EXISTS (
-  SELECT 1 FROM organizations o WHERE o.owner_id = cau.id
-);
+-- ── Auto-create an org for every admin who belongs to NO organization ──
+--
+-- Only for admins with no organization at all. Testing ownership alone minted a
+-- hall-less shell org for every staff member who had been invited into someone
+-- else's org, and because that shell made them its 'owner' it then outranked
+-- their real membership at sign-in — they landed in an empty tenant with full
+-- owner permissions. Platform 'staff' never get an org of their own; they exist
+-- only as members of one.
+--
+-- Audit any database with database/audit_org_ownership.sql; clean up with
+-- database/migration_phase6_remove_phantom_orgs.sql.
+-- organization_members does not exist yet on a fresh in-order run (phase 2
+-- creates it), so the membership guard is applied through dynamic SQL only
+-- when the table is present — i.e. when this file is re-run against an
+-- already-migrated database, which is the case that actually needs it.
+DO $$
+BEGIN
+  IF to_regclass('public.organization_members') IS NULL THEN
+    EXECUTE $q$
+      INSERT INTO organizations (name, slug, owner_id)
+      SELECT
+        COALESCE(cau.name, cau.email) || '''s Cinema',
+        LOWER(REPLACE(COALESCE(cau.name, cau.email), ' ', '-')) || '-' || LEFT(cau.id::text, 8),
+        cau.id
+      FROM cinema_admin_user cau
+      WHERE cau.role <> 'staff'
+        AND NOT EXISTS (SELECT 1 FROM organizations o WHERE o.owner_id = cau.id)
+    $q$;
+  ELSE
+    EXECUTE $q$
+      INSERT INTO organizations (name, slug, owner_id)
+      SELECT
+        COALESCE(cau.name, cau.email) || '''s Cinema',
+        LOWER(REPLACE(COALESCE(cau.name, cau.email), ' ', '-')) || '-' || LEFT(cau.id::text, 8),
+        cau.id
+      FROM cinema_admin_user cau
+      WHERE cau.role <> 'staff'
+        AND NOT EXISTS (SELECT 1 FROM organizations o WHERE o.owner_id = cau.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM organization_members om
+          WHERE om.admin_id = cau.id
+            AND om.status IN ('active', 'invited', 'suspended')
+        )
+    $q$;
+  END IF;
+END $$;
 
 -- ── organization_settings ────────────────────────────────────────
 -- One row per org per section.  JSONB typed per section (zod on write).
