@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
 import crypto from 'crypto'
 import { getPool, query } from '../../setup/db.js'
-import { createAdmin, createHall } from '../../setup/factories.js'
+import { createAdmin, createHall, createOrganization } from '../../setup/factories.js'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ import {
   refreshCinemaAdminToken, getCinemaAdminMe, forgotPassword, resetPassword,
   changePassword, verifyAdminEmail, resendVerificationEmail, getAdminSecurity,
   getAllAdmins, updateCinemaHall, googleLoginAdmin, githubLoginAdmin,
-  linkProviderAdmin, unlinkProviderAdmin, setPasswordAdmin,
+  linkProviderAdmin, unlinkProviderAdmin, setPasswordAdmin, completeOnboarding,
 } from '../../../controllers/auth.Controller.js'
 
 import { generateTokenAndSetCookie } from '../../../utils/generateTokenAndSetCookie.js'
@@ -629,5 +629,92 @@ describe('setPasswordAdmin', () => {
     })
     await setPasswordAdmin(req, res)
     expect(res.status).toHaveBeenCalledWith(400)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// completeOnboarding — who may create an organization
+//
+// This endpoint is guarded by nothing but a valid access token at the route
+// level, so the checks live in the controller. Before they existed, any
+// authenticated user could mint an org and become its Owner with every
+// permission — which is also what produced the hall-less shell orgs that
+// hijacked their owners' sign-in (see migration_phase6_remove_phantom_orgs.sql).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('completeOnboarding', () => {
+  const body = {
+    orgName: 'Sneaky Org',
+    name: 'Hall One',
+    location: 'Town',
+    district: 'District',
+    state: 'State',
+  }
+
+  const orgCount = async () =>
+    parseInt((await query('SELECT count(*) FROM organizations')).rows[0].count, 10)
+
+  it('rejects a platform staff account and creates no organization', async () => {
+    const staff = await createAdmin({ role: 'staff' })
+    const before = await orgCount()
+
+    const { req, res } = mockReqRes({ admin: { id: staff.id, role: 'staff' }, body })
+    await completeOnboarding(req, res)
+
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(res.json.mock.calls[0][0].error).toMatch(/staff/i)
+    expect(await orgCount()).toBe(before)
+  })
+
+  it('rejects an admin who already belongs to an org someone else owns', async () => {
+    const owner = await createAdmin()
+    const orgId = await createOrganization(owner.id, { name: 'Someone Elses Org' })
+
+    // A platform 'admin' invited into another owner's org — they must not be
+    // able to spin up a second org for themselves.
+    const invited = await createAdmin()
+    const role = await getPool().query(
+      `SELECT id FROM roles WHERE org_id = $1 AND key = 'admin'`, [orgId]
+    )
+    await getPool().query(
+      `INSERT INTO organization_members (org_id, admin_id, role_id, status, joined_at)
+       VALUES ($1, $2, $3, 'active', now())`,
+      [orgId, invited.id, role.rows[0].id]
+    )
+
+    const before = await orgCount()
+    const { req, res } = mockReqRes({ admin: { id: invited.id, role: 'admin' }, body })
+    await completeOnboarding(req, res)
+
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(res.json.mock.calls[0][0].error).toMatch(/already belong/i)
+    expect(await orgCount()).toBe(before)
+  })
+
+  it('allows an admin with no organization to onboard', async () => {
+    const fresh = await createAdmin()
+    const before = await orgCount()
+
+    const { req, res } = mockReqRes({
+      admin: { id: fresh.id, role: 'admin' },
+      body: { ...body, orgName: `Fresh Org ${Date.now()}` },
+    })
+    await completeOnboarding(req, res)
+
+    expect(res.status).toHaveBeenCalledWith(201)
+    expect(res.json.mock.calls[0][0]).toHaveProperty('orgId')
+    expect(await orgCount()).toBe(before + 1)
+  })
+
+  it('still lets an existing owner re-run onboarding without creating a second org', async () => {
+    const owner = await createAdmin()
+    await createOrganization(owner.id, { name: `Owner Org ${Date.now()}` })
+    const before = await orgCount()
+
+    const { req, res } = mockReqRes({ admin: { id: owner.id, role: 'admin' }, body })
+    await completeOnboarding(req, res)
+
+    expect(res.status).toHaveBeenCalledWith(201)
+    expect(await orgCount()).toBe(before)
   })
 })

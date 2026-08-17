@@ -15,6 +15,7 @@ import {
 } from '../mail/emails.js'
 import logger from '../utils/logger.js'
 import * as teamService from '../services/team.service.js'
+import { resolveOrgId } from '../middleware/requirePermission.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -1411,6 +1412,41 @@ export const completeOnboarding = async (req, res) => {
     return res.status(400).json({ error: 'Cinema Hall name, location, district, and state are required.' });
   }
 
+  // Only account holders create organizations. This endpoint used to be
+  // guarded by nothing but a valid access token, so any authenticated user —
+  // a Finance staff member included — could mint an org and become its Owner
+  // with every permission. The frontend redirect that sends staff away from
+  // /onboarding is UI-only and does nothing for a direct request.
+  //
+  // This is also the last remaining source of hall-less shell orgs: one owned
+  // by someone who already belongs elsewhere used to hijack their sign-in.
+  if (req.admin.role === 'staff') {
+    return res.status(403).json({
+      error: 'Staff accounts cannot create an organization. Ask your organization owner for access.',
+    });
+  }
+
+  try {
+    const existingOrgId = await resolveOrgId(adminId);
+    if (existingOrgId) {
+      // An owner re-running onboarding is resolved below against their own
+      // org, which keeps the flow idempotent. Reaching here means the caller
+      // belongs to an org someone else owns.
+      const { rows } = await pool.query(
+        `SELECT 1 FROM organizations WHERE id = $1 AND owner_id = $2`,
+        [existingOrgId, adminId]
+      );
+      if (rows.length === 0) {
+        return res.status(403).json({
+          error: 'You already belong to an organization.',
+        });
+      }
+    }
+  } catch (err) {
+    logger.error('Onboarding membership check failed:', { message: err.message });
+    return res.status(500).json({ error: 'Onboarding failed. Try again later.' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1555,11 +1591,19 @@ export const completeOnboarding = async (req, res) => {
     }
 
     // 4. Link admin as owner in organization_members
+    //
+    // The WHERE clause is required, not decorative: phase 4 dropped the plain
+    // UNIQUE (org_id, admin_id) constraint and replaced it with the PARTIAL
+    // index uniq_active_org_member ... WHERE status <> 'removed'. Postgres will
+    // not match a bare ON CONFLICT (org_id, admin_id) against a partial index —
+    // it raises "there is no unique or exclusion constraint matching the
+    // ON CONFLICT specification", which rolled the whole transaction back and
+    // made onboarding fail with a 500 for every new signup.
     if (rolesMap['owner']) {
       await client.query(
         `INSERT INTO organization_members (org_id, admin_id, role_id, status, joined_at)
          VALUES ($1, $2, $3, 'active', now())
-         ON CONFLICT (org_id, admin_id) DO NOTHING`,
+         ON CONFLICT (org_id, admin_id) WHERE status <> 'removed' DO NOTHING`,
         [orgId, adminId, rolesMap['owner']]
       );
     }
