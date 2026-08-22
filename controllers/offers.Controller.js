@@ -1,5 +1,6 @@
 import db from "../db.js";
 import logger from '../utils/logger.js';
+import { resolveOrgId } from '../middleware/requirePermission.js';
 
 // ─────────────────────────────────────────────────────────────
 // Shared validation helper (used by validateOffer + createOrder)
@@ -106,11 +107,24 @@ export async function validateOfferCode({ offer_code, show_id, total_amount, cus
 
 
 // ─────────────────────────────────────────────────────────────
-// GET /api/offers/cinema-halls  (superAdmin — for the hall selector in create/edit form)
+// GET /api/offers/cinema-halls  (halls the caller may assign an offer to)
 // ─────────────────────────────────────────────────────────────
 export const getAllCinemaHalls = async (req, res) => {
     try {
-        const result = await db.query(`SELECT id, name FROM cinema_hall ORDER BY name ASC`);
+        if (req.admin.role === 'superAdmin') {
+            const result = await db.query(`SELECT id, name FROM cinema_hall ORDER BY name ASC`);
+            return res.status(200).json({ halls: result.rows });
+        }
+
+        const orgId = await resolveOrgId(req.admin.id);
+        if (!orgId) {
+            return res.status(403).json({ error: 'No organization found' });
+        }
+
+        const result = await db.query(
+            `SELECT id, name FROM cinema_hall WHERE org_id = $1 ORDER BY name ASC`,
+            [orgId]
+        );
         return res.status(200).json({ halls: result.rows });
     } catch (error) {
         logger.error("❌ getAllCinemaHalls error:", { error });
@@ -120,33 +134,50 @@ export const getAllCinemaHalls = async (req, res) => {
 
 
 // ─────────────────────────────────────────────────────────────
-// GET /api/offers  (superAdmin — all offers with filters)
+// GET /api/offers  (superAdmin sees all; others see only offers they created)
 // ─────────────────────────────────────────────────────────────
 export const getAllOffers = async (req, res) => {
     const { scope, is_active, search, page = 1 } = req.query;
     const limit = 50;
     const offset = (parseInt(page) - 1) * limit;
+    const isSuperAdmin = req.admin.role === 'superAdmin';
 
     try {
         const params = [
             scope || null,
             is_active !== undefined ? is_active : null,
             search || null,
-            offset,
+            isSuperAdmin ? null : req.admin.id,
         ];
 
         const result = await db.query(`
             SELECT o.*,
-                   ch.name AS cinema_hall_name
+                   ch.name AS cinema_hall_name,
+                   cau.name AS created_by_name,
+                   cau.email AS created_by_email,
+                   CASE WHEN cau.role = 'superAdmin' THEN 'Super Admin' ELSE creator_role.role_key END AS created_by_role
             FROM offers o
             LEFT JOIN cinema_hall ch ON ch.id = o.cinema_hall_id
+            LEFT JOIN cinema_admin_user cau ON cau.id = o.created_by
+            LEFT JOIN LATERAL (
+                SELECT r.key AS role_key
+                FROM organization_members om
+                JOIN roles r ON r.id = om.role_id
+                JOIN organizations org ON org.id = om.org_id
+                WHERE om.admin_id = o.created_by AND om.status = 'active' AND org.is_active = TRUE
+                ORDER BY EXISTS (SELECT 1 FROM cinema_hall ch2 WHERE ch2.org_id = org.id) DESC,
+                         (org.owner_id = o.created_by) DESC,
+                         om.created_at ASC
+                LIMIT 1
+            ) creator_role ON true
             WHERE ($1::text IS NULL OR o.scope = $1)
               AND ($2::boolean IS NULL OR o.is_active = $2)
               AND ($3::text IS NULL OR UPPER(o.code) LIKE '%' || UPPER($3) || '%'
                                     OR LOWER(o.title) LIKE '%' || LOWER($3) || '%')
+              AND ($4::uuid IS NULL OR o.created_by = $4)
             ORDER BY o.created_at DESC
-            LIMIT ${limit} OFFSET $4
-        `, params);
+            LIMIT ${limit} OFFSET $5
+        `, [...params, offset]);
 
         const countResult = await db.query(`
             SELECT COUNT(*) AS total FROM offers o
@@ -154,7 +185,8 @@ export const getAllOffers = async (req, res) => {
               AND ($2::boolean IS NULL OR o.is_active = $2)
               AND ($3::text IS NULL OR UPPER(o.code) LIKE '%' || UPPER($3) || '%'
                                     OR LOWER(o.title) LIKE '%' || LOWER($3) || '%')
-        `, params.slice(0, 3));
+              AND ($4::uuid IS NULL OR o.created_by = $4)
+        `, params);
 
         return res.status(200).json({
             offers: result.rows,
@@ -188,6 +220,27 @@ export const createOffer = async (req, res) => {
 
     if (!['percentage', 'fixed'].includes(discount_type)) {
         return res.status(400).json({ error: "discount_type must be 'percentage' or 'fixed'." });
+    }
+
+    const isSuperAdmin = req.admin?.role === 'superAdmin';
+    const resolvedScope = scope || 'global';
+
+    if (resolvedScope === 'global' && !isSuperAdmin) {
+        return res.status(403).json({ error: "Only Super Admin can create global offers." });
+    }
+
+    if (resolvedScope === 'hall' && !isSuperAdmin) {
+        if (!cinema_hall_id) {
+            return res.status(400).json({ error: "cinema_hall_id is required for hall-scoped offers." });
+        }
+        const orgId = await resolveOrgId(admin_id);
+        if (!orgId) {
+            return res.status(403).json({ error: 'No organization found' });
+        }
+        const hallResult = await db.query(`SELECT org_id FROM cinema_hall WHERE id = $1`, [cinema_hall_id]);
+        if (hallResult.rowCount === 0 || hallResult.rows[0].org_id !== orgId) {
+            return res.status(403).json({ error: "You can only create offers for your own cinema hall." });
+        }
     }
 
     try {
@@ -224,21 +277,26 @@ export const createOffer = async (req, res) => {
 
 
 // ─────────────────────────────────────────────────────────────
-// GET /api/offers/:id  (superAdmin — single offer for edit page)
+// GET /api/offers/:id  (superAdmin sees any; others only their own)
 // ─────────────────────────────────────────────────────────────
 export const getOfferById = async (req, res) => {
     const { id } = req.params;
     try {
         const result = await db.query(`
-            SELECT o.*, ch.name AS cinema_hall_name
+            SELECT o.*, ch.name AS cinema_hall_name, cau.name AS created_by_name
             FROM offers o
             LEFT JOIN cinema_hall ch ON ch.id = o.cinema_hall_id
+            LEFT JOIN cinema_admin_user cau ON cau.id = o.created_by
             WHERE o.id = $1
         `, [id]);
         if (result.rowCount === 0) {
             return res.status(404).json({ error: "Offer not found." });
         }
-        return res.status(200).json({ offer: result.rows[0] });
+        const offer = result.rows[0];
+        if (req.admin.role !== 'superAdmin' && offer.created_by !== req.admin.id) {
+            return res.status(403).json({ error: "You can only view offers you created." });
+        }
+        return res.status(200).json({ offer });
     } catch (error) {
         logger.error("❌ getOfferById error:", { error });
         return res.status(500).json({ error: "Failed to fetch offer." });
@@ -247,7 +305,7 @@ export const getOfferById = async (req, res) => {
 
 
 // ─────────────────────────────────────────────────────────────
-// PUT /api/offers/update/:id  (superAdmin)
+// PUT /api/offers/update/:id  (superAdmin, or the offer's creator)
 // ─────────────────────────────────────────────────────────────
 export const updateOffer = async (req, res) => {
     const { id } = req.params;
@@ -259,7 +317,36 @@ export const updateOffer = async (req, res) => {
         user_eligibility, user_joined_after,
     } = req.body;
 
+    const isSuperAdmin = req.admin.role === 'superAdmin';
+    const resolvedScope = scope || 'global';
+
     try {
+        const existing = await db.query(`SELECT created_by FROM offers WHERE id = $1`, [id]);
+        if (existing.rowCount === 0) {
+            return res.status(404).json({ error: "Offer not found." });
+        }
+        if (!isSuperAdmin && existing.rows[0].created_by !== req.admin.id) {
+            return res.status(403).json({ error: "You can only edit offers you created." });
+        }
+
+        if (resolvedScope === 'global' && !isSuperAdmin) {
+            return res.status(403).json({ error: "Only Super Admin can create global offers." });
+        }
+
+        if (resolvedScope === 'hall' && !isSuperAdmin) {
+            if (!cinema_hall_id) {
+                return res.status(400).json({ error: "cinema_hall_id is required for hall-scoped offers." });
+            }
+            const orgId = await resolveOrgId(req.admin.id);
+            if (!orgId) {
+                return res.status(403).json({ error: 'No organization found' });
+            }
+            const hallResult = await db.query(`SELECT org_id FROM cinema_hall WHERE id = $1`, [cinema_hall_id]);
+            if (hallResult.rowCount === 0 || hallResult.rows[0].org_id !== orgId) {
+                return res.status(403).json({ error: "You can only create offers for your own cinema hall." });
+            }
+        }
+
         const result = await db.query(`
             UPDATE offers SET
                 code = UPPER($1),
@@ -306,11 +393,19 @@ export const updateOffer = async (req, res) => {
 
 
 // ─────────────────────────────────────────────────────────────
-// DELETE /api/offers/delete/:id  (superAdmin)
+// DELETE /api/offers/delete/:id  (superAdmin, or the offer's creator)
 // ─────────────────────────────────────────────────────────────
 export const deleteOffer = async (req, res) => {
     const { id } = req.params;
     try {
+        const existing = await db.query(`SELECT created_by FROM offers WHERE id = $1`, [id]);
+        if (existing.rowCount === 0) {
+            return res.status(404).json({ error: "Offer not found." });
+        }
+        if (req.admin.role !== 'superAdmin' && existing.rows[0].created_by !== req.admin.id) {
+            return res.status(403).json({ error: "You can only delete offers you created." });
+        }
+
         const result = await db.query(`DELETE FROM offers WHERE id = $1 RETURNING id`, [id]);
         if (result.rowCount === 0) {
             return res.status(404).json({ error: "Offer not found." });
