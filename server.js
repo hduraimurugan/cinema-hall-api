@@ -32,6 +32,7 @@ import hallRoutes from './routes/halls.routes.js';
 import teamRoutes from './routes/team.routes.js';
 import rolesRoutes from './routes/roles.routes.js';
 import auditLogsRoutes from './routes/auditLogs.routes.js';
+import notificationsRoutes from './routes/notifications.routes.js';
 import { cleanupExpiredHolds } from './controllers/booking.Controller.js';
 import { updateShowStatuses } from './controllers/shows.Controller.js';
 
@@ -65,17 +66,19 @@ app.use((req, res, next) => {
   next();
 });
 
-// Skip express.json() for the payment webhook path.
-// The webhook route applies express.raw() itself (in payment.routes.js) so that
-// req.body is a Buffer with the exact bytes Razorpay signed. If express.json()
-// ran first, JSON.stringify(req.body) would not reproduce the original byte
-// sequence reliably, breaking HMAC signature verification.
+// Skip express.json() for the payment webhook and QStash dispatch paths.
+// Both routes apply express.raw() themselves (in payment.routes.js /
+// notifications.routes.js) so that req.body is a Buffer with the exact bytes
+// the sender signed. If express.json() ran first, JSON.stringify(req.body)
+// would not reproduce the original byte sequence reliably, breaking
+// HMAC/Upstash signature verification.
+const RAW_BODY_PATHS = ['/api/payment/webhook', '/api/notifications/dispatch'];
 app.use((req, res, next) => {
-  if (req.path === '/api/payment/webhook') return next();
+  if (RAW_BODY_PATHS.includes(req.path)) return next();
   express.json()(req, res, next);
 });
 app.use((req, res, next) => {
-  if (req.path === '/api/payment/webhook') return next();
+  if (RAW_BODY_PATHS.includes(req.path)) return next();
   express.urlencoded({ extended: true })(req, res, next);
 });
 app.use(cookieParser());
@@ -120,6 +123,7 @@ app.use('/api/halls', hallRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/roles', rolesRoutes);
 app.use('/api/audit-logs', auditLogsRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // Ping route
 app.get('/ping', (req, res) => res.send('pong'));

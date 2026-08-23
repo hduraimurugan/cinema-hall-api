@@ -10,6 +10,11 @@ import {
   CUSTOMER_OTP_TEMPLATE,
   CUSTOMER_ACCOUNT_LOCKED_TEMPLATE,
   CUSTOMER_PASSWORD_CHANGED_TEMPLATE,
+  BOOKING_CONFIRMATION_TEMPLATE,
+  REFUND_INITIATED_TEMPLATE,
+  REFUND_SETTLED_TEMPLATE,
+  SHOW_CANCELLED_TEMPLATE,
+  SHOW_REMINDER_TEMPLATE,
 } from "./emailTemplate.js"
 import { transporter } from "./mail.config.js"
 import dotenv from 'dotenv';
@@ -225,6 +230,130 @@ export const sendCustomerAccountLockedEmail = async (email, name, lockedUntil) =
   } catch (error) {
     logger.error('Error sending customer account locked email:', { message: error.message })
     // Non-fatal
+  }
+}
+
+// ─── Booking / Notification Emails ─────────────────────────────────────────
+
+/**
+ * @param {string} email
+ * @param {object} data - { name, movieTitle, cinemaHallName, showDate, startTime, seats: string[], amount }
+ */
+export const sendBookingConfirmationEmail = async (email, data) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: `Booking confirmed: ${data.movieTitle}`,
+      html: BOOKING_CONFIRMATION_TEMPLATE
+        .replace(/{name}/g, data.name || 'there')
+        .replace(/{movieTitle}/g, data.movieTitle || '')
+        .replace(/{cinemaHallName}/g, data.cinemaHallName || '')
+        .replace(/{showDate}/g, data.showDate || '')
+        .replace(/{startTime}/g, data.startTime || '')
+        .replace(/{seats}/g, (data.seats || []).join(', '))
+        .replace(/{amount}/g, data.amount ?? ''),
+      category: 'Booking Confirmation',
+    })
+    logger.info('Booking confirmation email sent', { email })
+  } catch (error) {
+    logger.error('Error sending booking confirmation email:', { message: error.message })
+    throw new Error('Error sending booking confirmation email')
+  }
+}
+
+/**
+ * @param {string} email
+ * @param {object} data - { name, movieTitle, amount }
+ */
+export const sendRefundInitiatedEmail = async (email, data) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: `Refund initiated: ${data.movieTitle}`,
+      html: REFUND_INITIATED_TEMPLATE
+        .replace(/{name}/g, data.name || 'there')
+        .replace(/{movieTitle}/g, data.movieTitle || '')
+        .replace(/{amount}/g, data.amount ?? ''),
+      category: 'Refund Initiated',
+    })
+    logger.info('Refund initiated email sent', { email })
+  } catch (error) {
+    logger.error('Error sending refund initiated email:', { message: error.message })
+    throw new Error('Error sending refund initiated email')
+  }
+}
+
+/**
+ * @param {string} email
+ * @param {object} data - { name, movieTitle, amount }
+ */
+export const sendRefundSettledEmail = async (email, data) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: `Refund settled: ${data.movieTitle}`,
+      html: REFUND_SETTLED_TEMPLATE
+        .replace(/{name}/g, data.name || 'there')
+        .replace(/{movieTitle}/g, data.movieTitle || '')
+        .replace(/{amount}/g, data.amount ?? ''),
+      category: 'Refund Settled',
+    })
+    logger.info('Refund settled email sent', { email })
+  } catch (error) {
+    logger.error('Error sending refund settled email:', { message: error.message })
+    throw new Error('Error sending refund settled email')
+  }
+}
+
+/**
+ * @param {string} email
+ * @param {object} data - { name, movieTitle, showDate, cinemaHallName, amount }
+ */
+export const sendShowCancelledEmail = async (email, data) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: `Show cancelled: ${data.movieTitle}`,
+      html: SHOW_CANCELLED_TEMPLATE
+        .replace(/{name}/g, data.name || 'there')
+        .replace(/{movieTitle}/g, data.movieTitle || '')
+        .replace(/{showDate}/g, data.showDate || '')
+        .replace(/{cinemaHallName}/g, data.cinemaHallName || '')
+        .replace(/{amount}/g, data.amount ?? ''),
+      category: 'Show Cancelled',
+    })
+    logger.info('Show cancelled email sent', { email })
+  } catch (error) {
+    logger.error('Error sending show cancelled email:', { message: error.message })
+    throw new Error('Error sending show cancelled email')
+  }
+}
+
+/**
+ * @param {string} email
+ * @param {object} data - { name, movieTitle, startTime, seats: string[] }
+ */
+export const sendShowReminderEmail = async (email, data) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: `Starting soon: ${data.movieTitle}`,
+      html: SHOW_REMINDER_TEMPLATE
+        .replace(/{name}/g, data.name || 'there')
+        .replace(/{movieTitle}/g, data.movieTitle || '')
+        .replace(/{startTime}/g, data.startTime || '')
+        .replace(/{seats}/g, (data.seats || []).join(', ')),
+      category: 'Show Reminder',
+    })
+    logger.info('Show reminder email sent', { email })
+  } catch (error) {
+    logger.error('Error sending show reminder email:', { message: error.message })
+    throw new Error('Error sending show reminder email')
   }
 }
 

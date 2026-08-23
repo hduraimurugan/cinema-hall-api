@@ -3,6 +3,7 @@ import crypto from "crypto";
 import db from "../db.js";
 import { validateOfferCode } from "./offers.Controller.js";
 import logger from '../utils/logger.js';
+import { notify, scheduleShowReminder } from '../services/notification/index.js';
 
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
@@ -328,6 +329,65 @@ export const verifyPayment = async (req, res) => {
 
             await client.query('COMMIT');
 
+            // Notify only if this call actually created the booking row —
+            // bookingResult.rowCount === 0 means a concurrent call won the
+            // ON CONFLICT race and will send its own notification.
+            // Called after COMMIT, never inside the transaction: a notification
+            // failure must never turn a successful payment into a 500 — notify()
+            // and scheduleShowReminder() catch all their own errors internally.
+            if (bookingResult.rowCount > 0) {
+                try {
+                    const detailsResult = await db.query(`
+                        SELECT m.title AS movie_title, sh.show_date, sh.start_time,
+                               ch.name AS cinema_hall_name, ch.org_id,
+                               ARRAY(
+                                   SELECT (seat_data->>'row') || (seat_data->>'column')
+                                   FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
+                                   WHERE seat_data->>'id' = ANY($2::text[])
+                               ) AS seat_labels
+                        FROM shows sh
+                        JOIN movies m ON m.id = sh.movie_id
+                        JOIN screens sc ON sc.id = sh.screen_id
+                        JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+                        WHERE sh.id = $1
+                    `, [order.show_id, seats]);
+                    const details = detailsResult.rows[0];
+
+                    if (details) {
+                        const recipient = { type: 'customer', id: customer_id, orgId: details.org_id };
+                        const notifyData = {
+                            bookingId: booking.id,
+                            showId: order.show_id,
+                            movieTitle: details.movie_title,
+                            cinemaHallName: details.cinema_hall_name,
+                            showDate: details.show_date,
+                            startTime: details.start_time,
+                            seats: details.seat_labels,
+                            amount: booking.total_amount,
+                        };
+                        await notify('booking_confirmed', recipient, notifyData);
+                        // show_date/start_time are IST wall-clock values with no
+                        // offset in the DB (no DST in India, so the offset is
+                        // always fixed) — an explicit +05:30 in the ISO string
+                        // gives the correct UTC instant without depending on the
+                        // Postgres session's TimeZone setting or node-postgres's
+                        // default (non-UTC) timestamp parsing.
+                        const showDateTime = new Date(`${details.show_date}T${details.start_time}+05:30`);
+                        await scheduleShowReminder({
+                            bookingId: booking.id,
+                            showId: order.show_id,
+                            customerId: customer_id,
+                            orgId: details.org_id,
+                            movieTitle: details.movie_title,
+                            seats: details.seat_labels,
+                            showDateTime,
+                        });
+                    }
+                } catch (notifyError) {
+                    logger.error('[verifyPayment] Notification dispatch failed (non-fatal)', { message: notifyError.message });
+                }
+            }
+
             return res.status(200).json({
                 success: true,
                 message: isRecreatedIdempotent
@@ -443,14 +503,42 @@ export const handleWebhook = async (req, res) => {
                 await handleOrderPaid(payload.order.entity);
                 break;
 
-            case "refund.processed":
-                await db.query(
+            case "refund.processed": {
+                const settledResult = await db.query(
                     `UPDATE refunds SET refund_status = 'settled', settled_at = NOW()
-                     WHERE razorpay_refund_id = $1`,
+                     WHERE razorpay_refund_id = $1
+                     RETURNING id, booking_id, amount`,
                     [payload.refund.entity.id]
                 );
                 logger.info(`✅ Refund settled: ${payload.refund.entity.id}`);
+
+                const settledRefund = settledResult.rows[0];
+                if (settledRefund) {
+                    try {
+                        const bookingResult = await db.query(
+                            `SELECT b.customer_id, m.title AS movie_title, ch.org_id
+                             FROM bookings b
+                             JOIN shows sh ON sh.id = b.show_id
+                             JOIN movies m ON m.id = sh.movie_id
+                             JOIN screens sc ON sc.id = sh.screen_id
+                             JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+                             WHERE b.id = $1`,
+                            [settledRefund.booking_id]
+                        );
+                        const bookingInfo = bookingResult.rows[0];
+                        if (bookingInfo) {
+                            await notify(
+                                'refund_settled',
+                                { type: 'customer', id: bookingInfo.customer_id, orgId: bookingInfo.org_id },
+                                { bookingId: settledRefund.booking_id, refundId: settledRefund.id, movieTitle: bookingInfo.movie_title, amount: settledRefund.amount }
+                            );
+                        }
+                    } catch (notifyError) {
+                        logger.error('[webhook refund.processed] Notification dispatch failed (non-fatal)', { message: notifyError.message });
+                    }
+                }
                 break;
+            }
 
             case "refund.failed":
                 await db.query(
@@ -564,6 +652,55 @@ async function handlePaymentCaptured(payment) {
 
         await client.query('COMMIT');
         logger.info(`✅ Webhook: Order ${orderId} confirmed and booking created via payment.captured`);
+
+        // Notify only if this call actually created the booking row —
+        // rowCount === 0 means verifyPayment (or a prior webhook delivery)
+        // already created it and already sent this notification.
+        if (bookingResult.rowCount > 0) {
+            try {
+                const detailsResult = await db.query(`
+                    SELECT m.title AS movie_title, sh.show_date, sh.start_time,
+                           ch.name AS cinema_hall_name, ch.org_id,
+                           ARRAY(
+                               SELECT (seat_data->>'row') || (seat_data->>'column')
+                               FROM jsonb_array_elements(sc.layout->'seats') AS seat_data
+                               WHERE seat_data->>'id' = ANY($2::text[])
+                           ) AS seat_labels
+                    FROM shows sh
+                    JOIN movies m ON m.id = sh.movie_id
+                    JOIN screens sc ON sc.id = sh.screen_id
+                    JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+                    WHERE sh.id = $1
+                `, [order.show_id, seats]);
+                const details = detailsResult.rows[0];
+
+                if (details) {
+                    const recipient = { type: 'customer', id: order.customer_id, orgId: details.org_id };
+                    await notify('booking_confirmed', recipient, {
+                        bookingId: booking.id,
+                        showId: order.show_id,
+                        movieTitle: details.movie_title,
+                        cinemaHallName: details.cinema_hall_name,
+                        showDate: details.show_date,
+                        startTime: details.start_time,
+                        seats: details.seat_labels,
+                        amount: booking.total_amount,
+                    });
+                    const showDateTime = new Date(`${details.show_date}T${details.start_time}+05:30`);
+                    await scheduleShowReminder({
+                        bookingId: booking.id,
+                        showId: order.show_id,
+                        customerId: order.customer_id,
+                        orgId: details.org_id,
+                        movieTitle: details.movie_title,
+                        seats: details.seat_labels,
+                        showDateTime,
+                    });
+                }
+            } catch (notifyError) {
+                logger.error('[handlePaymentCaptured] Notification dispatch failed (non-fatal)', { message: notifyError.message });
+            }
+        }
 
     } catch (error) {
         await client.query('ROLLBACK');

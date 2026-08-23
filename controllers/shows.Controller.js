@@ -3,6 +3,7 @@ import dayjs from 'dayjs';
 import Razorpay from "razorpay";
 import logger from '../utils/logger.js';
 import { recordAuditLog } from '../utils/auditLog.js';
+import { notify, cancelShowReminder } from '../services/notification/index.js';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -558,7 +559,7 @@ export const cancelShow = async (req, res) => {
 
     // Find all paid bookings for this show
     const bookingsResult = await client.query(
-      `SELECT id, payment_id, total_amount FROM bookings
+      `SELECT id, payment_id, total_amount, customer_id FROM bookings
        WHERE show_id = $1 AND payment_status = 'completed' AND booking_status != 'cancelled'`,
       [id]
     );
@@ -585,6 +586,19 @@ export const cancelShow = async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Fetched once for the whole show (not per booking) — used by the
+    // show_cancelled/refund_initiated notifications below.
+    const showDetailsResult = await db.query(
+      `SELECT m.title AS movie_title, sh.show_date, ch.name AS cinema_hall_name, ch.org_id
+       FROM shows sh
+       JOIN movies m ON m.id = sh.movie_id
+       JOIN screens sc ON sc.id = sh.screen_id
+       JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+       WHERE sh.id = $1`,
+      [id]
+    );
+    const showDetails = showDetailsResult.rows[0];
+
     // Initiate Razorpay refunds outside the DB transaction
     const refundResults = [];
     for (const booking of bookingsResult.rows) {
@@ -604,6 +618,27 @@ export const cancelShow = async (req, res) => {
             [refundErr.message, booking.id]
           );
           refundResults.push({ payment_id: booking.payment_id, status: 'refund_failed', error: refundErr.message });
+        }
+
+        // Two separate notify() calls — they map to two independent
+        // USER_DEFAULTS.notifications toggles the customer controls. Fires
+        // regardless of the Razorpay outcome above: "initiated" reflects that
+        // a refund attempt was made, not whether it has settled yet.
+        if (showDetails) {
+          const recipient = { type: 'customer', id: booking.customer_id, orgId: showDetails.org_id };
+          try {
+            await cancelShowReminder(booking.id);
+            await notify('show_cancelled', recipient, {
+              bookingId: booking.id, showId: id,
+              movieTitle: showDetails.movie_title, showDate: showDetails.show_date,
+              cinemaHallName: showDetails.cinema_hall_name, amount: booking.total_amount,
+            });
+            await notify('refund_initiated', recipient, {
+              bookingId: booking.id, movieTitle: showDetails.movie_title, amount: booking.total_amount,
+            });
+          } catch (notifyError) {
+            logger.error('[cancelShow] Notification dispatch failed (non-fatal)', { message: notifyError.message });
+          }
         }
       }
     }
@@ -749,7 +784,7 @@ export const bulkCancelShows = async (req, res) => {
       await client.query(`UPDATE shows SET status = 'cancelled' WHERE id = $1`, [id]);
 
       const bookingsResult = await client.query(
-        `SELECT id, payment_id, total_amount FROM bookings
+        `SELECT id, payment_id, total_amount, customer_id FROM bookings
          WHERE show_id = $1 AND payment_status = 'completed' AND booking_status != 'cancelled'`,
         [id]
       );
@@ -775,6 +810,17 @@ export const bulkCancelShows = async (req, res) => {
 
       await client.query('COMMIT');
 
+      const showDetailsResult = await db.query(
+        `SELECT m.title AS movie_title, sh.show_date, ch.name AS cinema_hall_name, ch.org_id
+         FROM shows sh
+         JOIN movies m ON m.id = sh.movie_id
+         JOIN screens sc ON sc.id = sh.screen_id
+         JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+         WHERE sh.id = $1`,
+        [id]
+      );
+      const showDetails = showDetailsResult.rows[0];
+
       // Razorpay refunds outside transaction
       for (const booking of bookingsResult.rows) {
         if (booking.payment_id) {
@@ -790,6 +836,23 @@ export const bulkCancelShows = async (req, res) => {
               `UPDATE refunds SET refund_status = 'failed', failure_reason = $1 WHERE booking_id = $2`,
               [refundErr.message, booking.id]
             );
+          }
+
+          if (showDetails) {
+            const recipient = { type: 'customer', id: booking.customer_id, orgId: showDetails.org_id };
+            try {
+              await cancelShowReminder(booking.id);
+              await notify('show_cancelled', recipient, {
+                bookingId: booking.id, showId: id,
+                movieTitle: showDetails.movie_title, showDate: showDetails.show_date,
+                cinemaHallName: showDetails.cinema_hall_name, amount: booking.total_amount,
+              });
+              await notify('refund_initiated', recipient, {
+                bookingId: booking.id, movieTitle: showDetails.movie_title, amount: booking.total_amount,
+              });
+            } catch (notifyError) {
+              logger.error('[bulkCancelShows] Notification dispatch failed (non-fatal)', { message: notifyError.message });
+            }
           }
         }
       }

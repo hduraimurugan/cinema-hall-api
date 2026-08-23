@@ -1,6 +1,7 @@
 import db from "../db.js";
 import logger from '../utils/logger.js';
 import { recordAuditLog } from '../utils/auditLog.js';
+import { notify } from '../services/notification/index.js';
 
 /**
  * GET /api/refunds
@@ -135,10 +136,14 @@ export const manuallySettleRefund = async (req, res) => {
   try {
     // Verify the refund belongs to this cinema hall
     const check = await db.query(
-      `SELECT r.id, r.refund_status FROM refunds r
+      `SELECT r.id, r.refund_status, r.booking_id, r.amount,
+              b.customer_id, m.title AS movie_title, ch.org_id
+       FROM refunds r
        JOIN bookings b ON b.id = r.booking_id
        JOIN shows sh ON sh.id = b.show_id
+       JOIN movies m ON m.id = sh.movie_id
        JOIN screens sc ON sc.id = sh.screen_id
+       JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
        WHERE r.id = $1 AND sc.cinema_hall_id = $2`,
       [refund_id, cinema_hall_id]
     );
@@ -162,6 +167,17 @@ export const manuallySettleRefund = async (req, res) => {
       resourceId: refund_id,
       hallId: cinema_hall_id,
     });
+
+    try {
+      const refund = check.rows[0];
+      await notify(
+        'refund_settled',
+        { type: 'customer', id: refund.customer_id, orgId: refund.org_id },
+        { bookingId: refund.booking_id, refundId: refund.id, movieTitle: refund.movie_title, amount: refund.amount }
+      );
+    } catch (notifyError) {
+      logger.error('[manuallySettleRefund] Notification dispatch failed (non-fatal)', { message: notifyError.message });
+    }
 
     res.status(200).json({ message: "Refund marked as settled" });
   } catch (err) {
