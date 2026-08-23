@@ -31,6 +31,7 @@ import refundRoutes from './routes/refund.routes.js';
 import hallRoutes from './routes/halls.routes.js';
 import teamRoutes from './routes/team.routes.js';
 import rolesRoutes from './routes/roles.routes.js';
+import auditLogsRoutes from './routes/auditLogs.routes.js';
 import { cleanupExpiredHolds } from './controllers/booking.Controller.js';
 import { updateShowStatuses } from './controllers/shows.Controller.js';
 
@@ -118,6 +119,7 @@ app.use('/api/refunds', refundRoutes);
 app.use('/api/halls', hallRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/roles', rolesRoutes);
+app.use('/api/audit-logs', auditLogsRoutes);
 
 // Ping route
 app.get('/ping', (req, res) => res.send('pong'));

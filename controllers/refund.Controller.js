@@ -1,5 +1,6 @@
 import db from "../db.js";
 import logger from '../utils/logger.js';
+import { recordAuditLog } from '../utils/auditLog.js';
 
 /**
  * GET /api/refunds
@@ -154,6 +155,13 @@ export const manuallySettleRefund = async (req, res) => {
       `UPDATE refunds SET refund_status = 'settled', settled_at = NOW() WHERE id = $1`,
       [refund_id]
     );
+
+    await recordAuditLog(req, {
+      action: 'refunds.settle',
+      resourceType: 'refund',
+      resourceId: refund_id,
+      hallId: cinema_hall_id,
+    });
 
     res.status(200).json({ message: "Refund marked as settled" });
   } catch (err) {

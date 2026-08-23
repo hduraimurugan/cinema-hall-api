@@ -1,6 +1,7 @@
 import pool from '../db.js'
 import jwt from 'jsonwebtoken'
 import logger from '../utils/logger.js'
+import { recordAuditLog } from '../utils/auditLog.js'
 
 // Create a new screen
 export const createScreen = async (req, res) => {
@@ -62,6 +63,14 @@ export const createScreen = async (req, res) => {
         ]
 
         const result = await client.query(insertQuery, values)
+
+        await recordAuditLog(req, {
+            action: 'screens.create',
+            resourceType: 'screen',
+            resourceId: result.rows[0].id,
+            resourceLabel: result.rows[0].name,
+            hallId: cinemaHallId,
+        })
 
         res.status(201).json(result.rows[0])
     } catch (error) {
@@ -134,6 +143,15 @@ export const editScreen = async (req, res) => {
 
         const result = await client.query(queryStr, values)
 
+        await recordAuditLog(req, {
+            action: 'screens.update',
+            resourceType: 'screen',
+            resourceId: result.rows[0].id,
+            resourceLabel: result.rows[0].name,
+            hallId: req.currentHallId,
+            metadata: { fields: fieldsToUpdate },
+        })
+
         res.status(200).json(result.rows[0])
     } catch (error) {
         logger.error('Error editing screen:', { message: error.message })
@@ -169,6 +187,14 @@ export const deleteScreen = async (req, res) => {
         // Step 2: Delete screen
         const deleteQuery = 'DELETE FROM screens WHERE id = $1 RETURNING *'
         const result = await client.query(deleteQuery, [screenId])
+
+        await recordAuditLog(req, {
+            action: 'screens.delete',
+            resourceType: 'screen',
+            resourceId: result.rows[0].id,
+            resourceLabel: result.rows[0].name,
+            hallId: req.currentHallId,
+        })
 
         res.status(200).json({ message: 'Screen deleted successfully', screen: result.rows[0] })
     } catch (error) {

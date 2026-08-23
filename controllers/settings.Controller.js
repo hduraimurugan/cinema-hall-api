@@ -1,6 +1,7 @@
 import db from "../db.js";
 import logger from '../utils/logger.js';
 import { resolveOrgId } from '../middleware/requirePermission.js';
+import { recordAuditLog } from '../utils/auditLog.js';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -135,6 +136,14 @@ export const updateOrgSettings = async (req, res) => {
 
       await client.query('COMMIT');
 
+      await recordAuditLog(req, {
+        action: 'settings.org.update',
+        resourceType: 'org_settings',
+        resourceId: orgId,
+        resourceLabel: section,
+        metadata: { section, fields: Object.keys(patch) },
+      });
+
       // Return both the section data and updated org name
       const resPayload = { section, value: merged };
       if (section === 'general') {
@@ -207,6 +216,16 @@ export const updateHallSettings = async (req, res) => {
       );
 
       await client.query('COMMIT');
+
+      await recordAuditLog(req, {
+        action: 'settings.hall.update',
+        resourceType: 'hall_settings',
+        resourceId: hallId,
+        resourceLabel: section,
+        hallId,
+        metadata: { section, fields: Object.keys(patch) },
+      });
+
       return res.status(200).json({ section, value: merged });
     } catch (err) {
       await client.query('ROLLBACK');

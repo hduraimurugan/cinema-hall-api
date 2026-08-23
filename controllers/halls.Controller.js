@@ -1,5 +1,6 @@
 import db from '../db.js';
 import logger from '../utils/logger.js';
+import { recordAuditLog } from '../utils/auditLog.js';
 
 // GET /api/halls
 // Returns all halls owned by the authenticated admin.
@@ -138,6 +139,15 @@ export const createHall = async (req, res) => {
         description?.trim() ?? null,
       ]
     );
+
+    await recordAuditLog(req, {
+      action: 'halls.create',
+      resourceType: 'hall',
+      resourceId: rows[0].id,
+      resourceLabel: rows[0].name,
+      hallId: rows[0].id,
+    });
+
     res.status(201).json({ hall: rows[0] });
   } catch (err) {
     logger.error('createHall error:', { message: err.message });
@@ -217,6 +227,14 @@ export const updateHall = async (req, res) => {
       ]
     );
 
+    await recordAuditLog(req, {
+      action: 'halls.update',
+      resourceType: 'hall',
+      resourceId: rows[0].id,
+      resourceLabel: rows[0].name,
+      hallId: rows[0].id,
+    });
+
     res.status(200).json({ hall: rows[0] });
   } catch (err) {
     logger.error('updateHall error:', { message: err.message });
@@ -233,7 +251,7 @@ export const deleteHall = async (req, res) => {
   try {
     // Fetch hall info
     const hallCheck = await db.query(
-      `SELECT org_id, admin_id FROM cinema_hall WHERE id = $1`,
+      `SELECT org_id, admin_id, name FROM cinema_hall WHERE id = $1`,
       [id]
     );
     if (hallCheck.rows.length === 0) {
@@ -253,7 +271,7 @@ export const deleteHall = async (req, res) => {
          LIMIT 1`,
         [req.admin.id]
       );
-      
+
       if (memberRes.rows.length > 0) {
         const { org_id, role_key } = memberRes.rows[0];
         if (hall.org_id === org_id) {
@@ -272,6 +290,14 @@ export const deleteHall = async (req, res) => {
       `DELETE FROM cinema_hall WHERE id = $1`,
       [id]
     );
+
+    await recordAuditLog(req, {
+      action: 'halls.delete',
+      resourceType: 'hall',
+      resourceId: id,
+      resourceLabel: hall.name,
+      hallId: id,
+    });
 
     res.status(200).json({ message: 'Hall deleted successfully' });
   } catch (err) {

@@ -1,6 +1,7 @@
 import db from "../db.js";
 import logger from '../utils/logger.js';
 import { resolveOrgId } from '../middleware/requirePermission.js';
+import { recordAuditLog } from '../utils/auditLog.js';
 
 // ─────────────────────────────────────────────────────────────
 // Shared validation helper (used by validateOffer + createOrder)
@@ -265,6 +266,14 @@ export const createOffer = async (req, res) => {
             admin_id || null,
         ]);
 
+        await recordAuditLog(req, {
+            action: 'offers.create',
+            resourceType: 'offer',
+            resourceId: result.rows[0].id,
+            resourceLabel: result.rows[0].code,
+            hallId: result.rows[0].cinema_hall_id,
+        });
+
         return res.status(201).json({ offer: result.rows[0] });
     } catch (error) {
         if (error.code === '23505') {
@@ -381,6 +390,15 @@ export const updateOffer = async (req, res) => {
         if (result.rowCount === 0) {
             return res.status(404).json({ error: "Offer not found." });
         }
+
+        await recordAuditLog(req, {
+            action: 'offers.update',
+            resourceType: 'offer',
+            resourceId: result.rows[0].id,
+            resourceLabel: result.rows[0].code,
+            hallId: result.rows[0].cinema_hall_id,
+        });
+
         return res.status(200).json({ offer: result.rows[0] });
     } catch (error) {
         if (error.code === '23505') {
@@ -406,10 +424,19 @@ export const deleteOffer = async (req, res) => {
             return res.status(403).json({ error: "You can only delete offers you created." });
         }
 
-        const result = await db.query(`DELETE FROM offers WHERE id = $1 RETURNING id`, [id]);
+        const result = await db.query(`DELETE FROM offers WHERE id = $1 RETURNING id, code, cinema_hall_id`, [id]);
         if (result.rowCount === 0) {
             return res.status(404).json({ error: "Offer not found." });
         }
+
+        await recordAuditLog(req, {
+            action: 'offers.delete',
+            resourceType: 'offer',
+            resourceId: result.rows[0].id,
+            resourceLabel: result.rows[0].code,
+            hallId: result.rows[0].cinema_hall_id,
+        });
+
         return res.status(200).json({ message: "Offer deleted." });
     } catch (error) {
         logger.error("❌ deleteOffer error:", { error });

@@ -2,6 +2,7 @@ import db from "../db.js"; // assumes you have a db instance (like pg-promise or
 import dayjs from 'dayjs';
 import Razorpay from "razorpay";
 import logger from '../utils/logger.js';
+import { recordAuditLog } from '../utils/auditLog.js';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -30,6 +31,14 @@ export const createShow = async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [movie_id, screen_id, formattedDate, start_time, end_time, language_version, price_override]
     );
+
+    await recordAuditLog(req, {
+      action: 'shows.create',
+      resourceType: 'show',
+      resourceId: result.rows[0].id,
+      resourceLabel: `${formattedDate} ${start_time}`,
+      hallId: req.currentHallId,
+    });
 
     res.status(201).json({ show: result.rows[0] });
   } catch (err) {
@@ -93,6 +102,15 @@ export const createMultipleShows = async (req, res) => {
 
     const skippedCount = skipped.length;
     logger.info(`✅ Bulk create: ${createdShows.length} created, ${skippedCount} skipped`);
+
+    await recordAuditLog(req, {
+      action: 'shows.create.bulk',
+      resourceType: 'show',
+      resourceLabel: `${createdShows.length} show(s)`,
+      hallId: req.currentHallId,
+      metadata: { created: createdShows.map(s => s.id), skipped },
+    });
+
     res.status(201).json({ shows: createdShows, skipped });
   } catch (err) {
     await client.query("ROLLBACK");
@@ -164,6 +182,16 @@ export const editShow = async (req, res) => {
 
   try {
     const result = await db.query(query, values);
+
+    await recordAuditLog(req, {
+      action: 'shows.update',
+      resourceType: 'show',
+      resourceId: result.rows[0].id,
+      resourceLabel: `${result.rows[0].show_date} ${result.rows[0].start_time}`,
+      hallId: req.currentHallId,
+      metadata: { fields: allowedFields.filter(f => req.body[f] !== undefined) },
+    });
+
     res.status(200).json({ updated: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -176,7 +204,18 @@ export const deleteShow = async (req, res) => {
   const { id } = req.params;
 
   try {
-    await db.query(`DELETE FROM shows WHERE id = $1`, [id]);
+    const result = await db.query(`DELETE FROM shows WHERE id = $1 RETURNING *`, [id]);
+
+    if (result.rowCount > 0) {
+      await recordAuditLog(req, {
+        action: 'shows.delete',
+        resourceType: 'show',
+        resourceId: result.rows[0].id,
+        resourceLabel: `${result.rows[0].show_date} ${result.rows[0].start_time}`,
+        hallId: req.currentHallId,
+      });
+    }
+
     res.status(200).json({ message: "Show deleted successfully" });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -196,6 +235,15 @@ export const deleteMultipleShows = async (req, res) => {
       `DELETE FROM shows WHERE id = ANY($1::uuid[]) RETURNING id`,
       [ids]
     );
+
+    await recordAuditLog(req, {
+      action: 'shows.delete.bulk',
+      resourceType: 'show',
+      resourceLabel: `${result.rowCount} show(s)`,
+      hallId: req.currentHallId,
+      metadata: { requested: ids, deleted: result.rows.map(r => r.id) },
+    });
+
     res.status(200).json({ deleted: result.rowCount, message: `${result.rowCount} show(s) deleted` });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -560,6 +608,14 @@ export const cancelShow = async (req, res) => {
       }
     }
 
+    await recordAuditLog(req, {
+      action: 'shows.cancel',
+      resourceType: 'show',
+      resourceId: id,
+      hallId: req.currentHallId,
+      metadata: { bookings_cancelled: bookingsResult.rowCount },
+    });
+
     res.status(200).json({
       message: 'Show cancelled successfully',
       bookings_cancelled: bookingsResult.rowCount,
@@ -598,6 +654,13 @@ export const updateShowBookingStatus = async (req, res) => {
         return res.status(400).json({ error: `Cannot open bookings for a show with status '${show.status}'` });
       }
       await db.query(`UPDATE shows SET status = 'booking_started' WHERE id = $1`, [id]);
+      await recordAuditLog(req, {
+        action: 'shows.booking_status.update',
+        resourceType: 'show',
+        resourceId: id,
+        hallId: req.currentHallId,
+        metadata: { action: 'open', to: 'booking_started' },
+      });
       return res.status(200).json({ message: 'Booking opened successfully', status: 'booking_started' });
     }
 
@@ -613,6 +676,13 @@ export const updateShowBookingStatus = async (req, res) => {
         return res.status(400).json({ error: 'Cannot revert: confirmed bookings already exist for this show' });
       }
       await db.query(`UPDATE shows SET status = 'scheduled' WHERE id = $1`, [id]);
+      await recordAuditLog(req, {
+        action: 'shows.booking_status.update',
+        resourceType: 'show',
+        resourceId: id,
+        hallId: req.currentHallId,
+        metadata: { action: 'revert', to: 'scheduled' },
+      });
       return res.status(200).json({ message: 'Show reverted to scheduled', status: 'scheduled' });
     }
 
@@ -621,6 +691,13 @@ export const updateShowBookingStatus = async (req, res) => {
         return res.status(400).json({ error: `Cannot restore a show with status '${show.status}'` });
       }
       await db.query(`UPDATE shows SET status = 'scheduled' WHERE id = $1`, [id]);
+      await recordAuditLog(req, {
+        action: 'shows.restore',
+        resourceType: 'show',
+        resourceId: id,
+        hallId: req.currentHallId,
+        metadata: { to: 'scheduled' },
+      });
       return res.status(200).json({ message: 'Show restored to scheduled', status: 'scheduled' });
     }
 
@@ -727,6 +804,19 @@ export const bulkCancelShows = async (req, res) => {
   }
 
   const succeeded = results.filter(r => r.success).length;
+
+  await recordAuditLog(req, {
+    action: 'shows.cancel.bulk',
+    resourceType: 'show',
+    resourceLabel: `${succeeded} show(s)`,
+    hallId: req.currentHallId,
+    metadata: {
+      requested: ids,
+      succeeded: results.filter(r => r.success).map(r => r.id),
+      failed: results.filter(r => !r.success),
+    },
+  });
+
   res.status(200).json({
     message: `${succeeded} of ${ids.length} show(s) cancelled`,
     results,
@@ -769,6 +859,19 @@ export const bulkRestoreShows = async (req, res) => {
   }
 
   const succeeded = results.filter(r => r.success).length;
+
+  await recordAuditLog(req, {
+    action: 'shows.restore.bulk',
+    resourceType: 'show',
+    resourceLabel: `${succeeded} show(s)`,
+    hallId: req.currentHallId,
+    metadata: {
+      requested: ids,
+      succeeded: results.filter(r => r.success).map(r => r.id),
+      failed: results.filter(r => !r.success),
+    },
+  });
+
   res.status(200).json({
     message: `${succeeded} of ${ids.length} show(s) restored to scheduled`,
     results,
@@ -811,6 +914,20 @@ export const bulkOpenBooking = async (req, res) => {
   }
 
   const succeeded = results.filter(r => r.success).length;
+
+  await recordAuditLog(req, {
+    action: 'shows.booking_status.update.bulk',
+    resourceType: 'show',
+    resourceLabel: `${succeeded} show(s)`,
+    hallId: req.currentHallId,
+    metadata: {
+      action: 'open',
+      requested: ids,
+      succeeded: results.filter(r => r.success).map(r => r.id),
+      failed: results.filter(r => !r.success),
+    },
+  });
+
   res.status(200).json({
     message: `Booking opened for ${succeeded} of ${ids.length} show(s)`,
     results,

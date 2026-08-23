@@ -3,6 +3,7 @@ import logger from '../utils/logger.js';
 import * as teamService from '../services/team.service.js';
 import { TeamServiceError } from '../services/team.service.js';
 import { resolveOrgId } from '../middleware/requirePermission.js';
+import { recordAuditLog } from '../utils/auditLog.js';
 
 // Validation failures from the service layer are client errors, not 500s.
 const ERROR_STATUS = {
@@ -58,6 +59,14 @@ export const inviteMember = async (req, res) => {
     }
 
     const result = await teamService.inviteMember(orgId, req.admin.id, { email, roleId, halls });
+
+    await recordAuditLog(req, {
+      action: 'team.member.invite',
+      resourceType: 'team_member',
+      resourceId: result.memberId,
+      resourceLabel: result.email,
+    });
+
     res.status(201).json({
       message: 'Invite sent successfully',
       token: result.rawToken,
@@ -82,6 +91,14 @@ export const createMember = async (req, res) => {
     }
 
     const result = await teamService.createMember(orgId, req.admin.id, { name, email, password, phone, roleId, halls });
+
+    await recordAuditLog(req, {
+      action: 'team.member.create',
+      resourceType: 'team_member',
+      resourceId: result.memberId,
+      resourceLabel: result.name || result.email,
+    });
+
     res.status(201).json({ message: 'Member created successfully', member: result });
   } catch (err) {
     if (handleServiceError(err, res)) return;
@@ -131,6 +148,13 @@ export const updateMember = async (req, res) => {
       return res.status(404).json({ error: 'Member not found' });
     }
 
+    await recordAuditLog(req, {
+      action: 'team.member.update',
+      resourceType: 'team_member',
+      resourceId: result.id,
+      metadata: { roleId, status },
+    });
+
     res.status(200).json({ message: 'Member updated successfully', member: result });
   } catch (err) {
     if (handleServiceError(err, res)) return;
@@ -148,6 +172,12 @@ export const removeMember = async (req, res) => {
     if (!result) {
       return res.status(404).json({ error: 'Member not found' });
     }
+
+    await recordAuditLog(req, {
+      action: 'team.member.remove',
+      resourceType: 'team_member',
+      resourceId: result.id,
+    });
 
     res.status(200).json({ message: 'Member removed successfully' });
   } catch (err) {
@@ -187,6 +217,13 @@ export const assignHalls = async (req, res) => {
       return res.status(404).json({ error: 'Member not found' });
     }
 
+    await recordAuditLog(req, {
+      action: 'team.member.assign_halls',
+      resourceType: 'team_member',
+      resourceId: req.params.id,
+      metadata: { halls: assigned },
+    });
+
     res.status(200).json({ message: 'Halls assigned successfully', halls: result });
   } catch (err) {
     if (handleServiceError(err, res)) return;
@@ -204,6 +241,13 @@ export const removeHallAssignment = async (req, res) => {
     if (!result) {
       return res.status(404).json({ error: 'Hall assignment not found' });
     }
+
+    await recordAuditLog(req, {
+      action: 'team.member.remove_hall',
+      resourceType: 'team_member',
+      resourceId: req.params.id,
+      hallId: req.params.hallId,
+    });
 
     res.status(200).json({ message: 'Hall assignment removed successfully' });
   } catch (err) {

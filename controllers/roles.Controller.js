@@ -6,6 +6,7 @@ import {
   loadAdminPermissions,
   clearOrgPermissionCache,
 } from '../middleware/requirePermission.js';
+import { recordAuditLog } from '../utils/auditLog.js';
 
 /**
  * Validate a requested permission set before it is written to a role.
@@ -157,6 +158,13 @@ export const createRole = async (req, res) => {
         [roleId]
       );
 
+      await recordAuditLog(req, {
+        action: 'roles.create',
+        resourceType: 'role',
+        resourceId: roleId,
+        resourceLabel: label,
+      });
+
       res.status(201).json({ role: fullRole.rows[0] });
     } catch (err) {
       await client.query('ROLLBACK');
@@ -297,6 +305,14 @@ export const updateRole = async (req, res) => {
         [role.id]
       );
 
+      await recordAuditLog(req, {
+        action: 'roles.update',
+        resourceType: 'role',
+        resourceId: role.id,
+        resourceLabel: label || role.key,
+        metadata: { fields: Object.keys(req.body) },
+      });
+
       res.status(200).json({ role: fullRole.rows[0] });
     } catch (err) {
       await client.query('ROLLBACK');
@@ -316,7 +332,7 @@ export const deleteRole = async (req, res) => {
     if (!orgId) return res.status(404).json({ error: 'Organization not found' });
 
     const roleResult = await db.query(
-      `SELECT id, is_system FROM roles WHERE id = $1 AND org_id = $2`,
+      `SELECT id, key, label, is_system FROM roles WHERE id = $1 AND org_id = $2`,
       [req.params.id, orgId]
     );
     if (roleResult.rows.length === 0) {
@@ -339,6 +355,14 @@ export const deleteRole = async (req, res) => {
 
     await db.query(`DELETE FROM roles WHERE id = $1`, [role.id]);
     clearOrgPermissionCache(orgId);
+
+    await recordAuditLog(req, {
+      action: 'roles.delete',
+      resourceType: 'role',
+      resourceId: role.id,
+      resourceLabel: role.label || role.key,
+    });
+
     res.status(200).json({ message: 'Role deleted successfully' });
   } catch (err) {
     logger.error('❌ deleteRole error:', { message: err.message });
@@ -427,6 +451,14 @@ export const cloneRole = async (req, res) => {
          GROUP BY r.id`,
         [newRoleId]
       );
+
+      await recordAuditLog(req, {
+        action: 'roles.clone',
+        resourceType: 'role',
+        resourceId: newRoleId,
+        resourceLabel: label,
+        metadata: { clonedFrom: req.params.id },
+      });
 
       res.status(201).json({ role: fullRole.rows[0] });
     } catch (err) {
