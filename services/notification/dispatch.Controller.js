@@ -1,5 +1,6 @@
 import { qstashReceiver } from './qstashClient.js';
 import { sendEmailForNotification } from './channels/email.js';
+import { sendPushForNotification } from './channels/push.js';
 import pool from '../../db.js';
 import logger from '../../utils/logger.js';
 
@@ -60,9 +61,10 @@ export const handleDispatch = async (req, res) => {
         let target;
         if (channel === 'email') {
             target = await sendEmailForNotification(recipient, notification);
+        } else if (channel === 'push') {
+            target = await sendPushForNotification({ type: recipientType, id: recipientId }, notification);
         } else {
-            // push.js is wired in a later rollout step
-            throw new Error(`Channel "${channel}" is not wired yet`);
+            throw new Error(`Channel "${channel}" is not implemented`);
         }
 
         await pool.query(

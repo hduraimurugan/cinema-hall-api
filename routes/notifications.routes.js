@@ -8,6 +8,8 @@ import {
     markAllRead,
     getPreferences,
     updatePreferences,
+    registerDeviceToken,
+    unregisterDeviceToken,
 } from '../controllers/notifications.Controller.js';
 
 const router = express.Router();
@@ -25,5 +27,7 @@ router.patch('/read-all', identifyRecipient, markAllRead);
 router.patch('/:id/read', identifyRecipient, markAsRead);
 router.get('/preferences', identifyRecipient, getPreferences);
 router.patch('/preferences', identifyRecipient, updatePreferences);
+router.post('/device-token', identifyRecipient, registerDeviceToken);
+router.delete('/device-token', identifyRecipient, unregisterDeviceToken);
 
 export default router;

@@ -97,6 +97,51 @@ export const getPreferences = async (req, res) => {
     }
 };
 
+// POST /api/notifications/device-token
+// Body: { token, platform: 'web'|'android'|'ios' }
+export const registerDeviceToken = async (req, res) => {
+    const { token, platform } = req.body;
+    if (!token || !['web', 'android', 'ios'].includes(platform)) {
+        return res.status(400).json({ error: 'token and a valid platform are required' });
+    }
+
+    try {
+        const { type, id } = req.recipient;
+        // ON CONFLICT (token) — a token is globally unique. If the same device
+        // re-registers (browser refresh, app relaunch) or logs in as a
+        // different account, re-point it to the current recipient.
+        await db.query(
+            `INSERT INTO device_tokens (customer_id, admin_id, token, platform, last_seen_at)
+             VALUES ($1, $2, $3, $4, now())
+             ON CONFLICT (token) DO UPDATE
+               SET customer_id = EXCLUDED.customer_id,
+                   admin_id = EXCLUDED.admin_id,
+                   platform = EXCLUDED.platform,
+                   last_seen_at = now()`,
+            [type === 'customer' ? id : null, type === 'admin' ? id : null, token, platform]
+        );
+        return res.status(200).json({ registered: true });
+    } catch (error) {
+        logger.error('❌ registerDeviceToken error:', { message: error.message });
+        return res.status(500).json({ error: 'Failed to register device token' });
+    }
+};
+
+// DELETE /api/notifications/device-token
+// Body: { token }
+export const unregisterDeviceToken = async (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'token is required' });
+
+    try {
+        await db.query(`DELETE FROM device_tokens WHERE token = $1`, [token]);
+        return res.status(200).json({ unregistered: true });
+    } catch (error) {
+        logger.error('❌ unregisterDeviceToken error:', { message: error.message });
+        return res.status(500).json({ error: 'Failed to unregister device token' });
+    }
+};
+
 // PATCH /api/notifications/preferences
 // Body: { patch: { <event>: { email, sms, whatsapp, push }, ... } }
 export const updatePreferences = async (req, res) => {
