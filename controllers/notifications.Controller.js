@@ -16,6 +16,7 @@ export const listNotifications = async (req, res) => {
             `SELECT id, event, title, body, data, booking_id, show_id, refund_id, read_at, created_at
              FROM notifications
              WHERE ${recipientColumn(type)} = $1
+               AND (scheduled_for IS NULL OR scheduled_for <= now())
              ORDER BY created_at DESC
              LIMIT $2 OFFSET $3`,
             [id, limit, offset]
@@ -33,7 +34,9 @@ export const getUnreadCount = async (req, res) => {
     try {
         const { type, id } = req.recipient;
         const { rows } = await db.query(
-            `SELECT COUNT(*)::int AS count FROM notifications WHERE ${recipientColumn(type)} = $1 AND read_at IS NULL`,
+            `SELECT COUNT(*)::int AS count FROM notifications
+             WHERE ${recipientColumn(type)} = $1 AND read_at IS NULL
+               AND (scheduled_for IS NULL OR scheduled_for <= now())`,
             [id]
         );
         return res.status(200).json({ count: rows[0].count });

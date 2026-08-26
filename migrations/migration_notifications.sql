@@ -22,10 +22,18 @@ CREATE TABLE IF NOT EXISTS notifications (
   refund_id    UUID REFERENCES refunds(id) ON DELETE SET NULL,
   read_at      TIMESTAMPTZ,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- NULL = visible immediately (the normal case). Set only by
+  -- scheduleShowReminder() to the same instant the QStash-scheduled
+  -- push/email fires, so the in-app row doesn't jump the gun and show
+  -- "starts soon" the moment the booking is made — see services/notification/index.js.
+  scheduled_for TIMESTAMPTZ,
   CONSTRAINT notifications_one_recipient CHECK (
     (customer_id IS NOT NULL)::int + (admin_id IS NOT NULL)::int = 1
   )
 );
+-- Idempotent for databases where this migration already ran before scheduled_for existed.
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_notifications_customer ON notifications(customer_id, created_at DESC) WHERE customer_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notifications_admin    ON notifications(admin_id, created_at DESC) WHERE admin_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notifications_unread   ON notifications(customer_id, admin_id) WHERE read_at IS NULL;

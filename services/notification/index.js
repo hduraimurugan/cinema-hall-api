@@ -86,6 +86,7 @@ export async function scheduleShowReminder({ bookingId, showId, customerId, orgI
         event: 'show_reminder',
         recipient: { type: 'customer', id: customerId, orgId },
         data: { bookingId, showId, movieTitle, seats, startTime: showDateTime.toISOString() },
+        scheduledFor: reminderAt,
     });
 
     const channels = await resolveEnabledChannels({ type: 'customer', id: customerId, orgId }, 'show_reminder');
