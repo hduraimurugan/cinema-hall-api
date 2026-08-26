@@ -5,16 +5,24 @@ import logger from '../../../utils/logger.js';
 const recipientColumn = (type) => (type === 'customer' ? 'customer_id' : 'admin_id');
 
 /**
- * Sends a push notification to every device registered for this recipient.
- * Returns a comma-separated list of tokens actually sent to (for the
- * dispatch log's `target`), or throws if the recipient has no devices —
- * caught by the caller like any other channel failure.
+ * Sends a push notification to this recipient's registered devices — every
+ * one of them by default, or only `options.tokenIds` when the caller (a
+ * Super Admin broadcast) narrowed it to specific devices. Returns a
+ * comma-separated list of tokens actually sent to (for the dispatch log's
+ * `target`), or throws if there's nothing to send to — caught by the
+ * caller like any other channel failure.
  */
-export async function sendPushForNotification(recipient, notification) {
-    const { rows: devices } = await pool.query(
-        `SELECT id, token FROM device_tokens WHERE ${recipientColumn(recipient.type)} = $1`,
-        [recipient.id]
-    );
+export async function sendPushForNotification(recipient, notification, options = {}) {
+    const { tokenIds } = options;
+    const { rows: devices } = tokenIds && tokenIds.length > 0
+        ? await pool.query(
+            `SELECT id, token FROM device_tokens WHERE id = ANY($1::uuid[]) AND ${recipientColumn(recipient.type)} = $2`,
+            [tokenIds, recipient.id]
+        )
+        : await pool.query(
+            `SELECT id, token FROM device_tokens WHERE ${recipientColumn(recipient.type)} = $1`,
+            [recipient.id]
+        );
 
     if (devices.length === 0) {
         throw new Error('Recipient has no registered devices');

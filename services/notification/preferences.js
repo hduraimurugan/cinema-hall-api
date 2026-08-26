@@ -22,6 +22,18 @@ export async function resolveEnabledChannels(recipient, event) {
     );
 }
 
+/**
+ * Same shape as resolveEnabledChannels() but skips the org-level channel
+ * switch — used for Super Admin broadcasts, which are platform-wide and
+ * have no single org to check a switch against (recipients come straight
+ * from the platform customers/admins lists, not one org's membership).
+ * Still respects the recipient's own per-event preference.
+ */
+export async function resolveEnabledChannelsForBroadcast(recipient, event) {
+    const recipientPrefs = await getRecipientEventPreferences(recipient, event);
+    return ['email', 'push'].filter((channel) => recipientPrefs[channel]);
+}
+
 async function getOrgChannelSwitches(orgId) {
     if (!orgId) return {};
     const { rows } = await pool.query(

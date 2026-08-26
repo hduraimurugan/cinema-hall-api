@@ -37,7 +37,7 @@ export const handleDispatch = async (req, res) => {
         return res.status(400).json({ error: 'Invalid JSON body' });
     }
 
-    const { notificationId, recipientType, recipientId, channel } = payload;
+    const { notificationId, recipientType, recipientId, channel, tokenIds } = payload;
     logger.info('[notifications/dispatch] Received', payload);
 
     try {
@@ -62,7 +62,7 @@ export const handleDispatch = async (req, res) => {
         if (channel === 'email') {
             target = await sendEmailForNotification(recipient, notification);
         } else if (channel === 'push') {
-            target = await sendPushForNotification({ type: recipientType, id: recipientId }, notification);
+            target = await sendPushForNotification({ type: recipientType, id: recipientId }, notification, { tokenIds });
         } else {
             throw new Error(`Channel "${channel}" is not implemented`);
         }

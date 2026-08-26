@@ -2,27 +2,30 @@ import pool from '../../db.js';
 import logger from '../../utils/logger.js';
 import { insertInAppNotification } from './channels/inApp.js';
 import { sendPushForNotification } from './channels/push.js';
-import { resolveEnabledChannels } from './preferences.js';
+import { resolveEnabledChannelsForBroadcast } from './preferences.js';
 import { publishDispatch } from './qstashClient.js';
 
 /**
  * Resolve an audience selector into a flat list of {type, id} recipients,
  * the same shape notify()/insertInAppNotification() already expect.
  */
-export async function resolveAudience({ audienceType, customerIds = [], adminIds = [] }) {
+export async function resolveAudience({ audienceType, customerIds = [], adminIds = [], deviceTokenFilter = {} }) {
     if (audienceType === 'all_customers') {
         const { rows } = await pool.query(`SELECT id FROM customers`);
-        return rows.map((r) => ({ type: 'customer', id: r.id }));
+        return rows.map((r) => ({ type: 'customer', id: r.id, deviceTokenIds: null }));
     }
     if (audienceType === 'all_admins') {
         // Matches the existing getAllAdmins scope (auth.Controller.js) — hall
         // admins only, not other superAdmins or org staff.
         const { rows } = await pool.query(`SELECT id FROM cinema_admin_user WHERE role = 'admin'`);
-        return rows.map((r) => ({ type: 'admin', id: r.id }));
+        return rows.map((r) => ({ type: 'admin', id: r.id, deviceTokenIds: null }));
     }
+    // deviceTokenIds: null means "every device this person has registered"
+    // (the default); an array means the admin narrowed it to specific
+    // device_tokens rows via the picker — see broadcast.Controller.js.
     return [
-        ...customerIds.map((id) => ({ type: 'customer', id })),
-        ...adminIds.map((id) => ({ type: 'admin', id })),
+        ...customerIds.map((id) => ({ type: 'customer', id, deviceTokenIds: deviceTokenFilter[`customer:${id}`] || null })),
+        ...adminIds.map((id) => ({ type: 'admin', id, deviceTokenIds: deviceTokenFilter[`admin:${id}`] || null })),
     ];
 }
 
@@ -62,14 +65,14 @@ export async function sendBroadcastNow(broadcast, recipients) {
             });
             await pool.query(`UPDATE notifications SET broadcast_id = $1 WHERE id = $2`, [broadcast.id, notification.id]);
 
-            const channels = await resolveEnabledChannels(recipient, 'admin_broadcast');
+            const channels = await resolveEnabledChannelsForBroadcast(recipient, 'admin_broadcast');
             if (!channels.includes('push')) {
                 failed++;
                 continue;
             }
 
             try {
-                const target = await sendPushForNotification(recipient, notification);
+                const target = await sendPushForNotification(recipient, notification, { tokenIds: recipient.deviceTokenIds });
                 await insertDispatchLogRow({ notificationId: notification.id, broadcastId: broadcast.id, recipient, channel: 'push', status: 'sent', target });
                 sent++;
             } catch (pushErr) {
@@ -108,7 +111,7 @@ export async function scheduleBroadcastFor(broadcast, recipients, scheduledFor) 
         });
         await pool.query(`UPDATE notifications SET broadcast_id = $1 WHERE id = $2`, [broadcast.id, notification.id]);
 
-        const channels = await resolveEnabledChannels(recipient, 'admin_broadcast');
+        const channels = await resolveEnabledChannelsForBroadcast(recipient, 'admin_broadcast');
         for (const channel of channels) {
             const { rows } = await pool.query(
                 `INSERT INTO notification_dispatch_log
@@ -131,6 +134,7 @@ export async function scheduleBroadcastFor(broadcast, recipients, scheduledFor) 
                     recipientId: recipient.id,
                     channel,
                     notBefore,
+                    tokenIds: recipient.deviceTokenIds || undefined,
                 });
                 await pool.query(`UPDATE notification_dispatch_log SET qstash_message_id = $1 WHERE id = $2`, [messageId, rows[0].id]);
             } catch (publishErr) {

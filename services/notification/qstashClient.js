@@ -27,11 +27,14 @@ const dispatchUrl = () => `${process.env.API_BASE_URL}/api/notifications/dispatc
  * @param {string} params.recipientId
  * @param {'email'|'push'} params.channel
  * @param {number} [params.notBefore] — unix seconds; omit for immediate dispatch
+ * @param {string[]} [params.tokenIds] — narrow a push send to specific
+ *   device_tokens rows (Super Admin broadcasts only); omit to send to every
+ *   device the recipient has registered.
  */
-export async function publishDispatch({ notificationId, event, recipientType, recipientId, channel, notBefore }) {
+export async function publishDispatch({ notificationId, event, recipientType, recipientId, channel, notBefore, tokenIds }) {
     return qstashClient.publishJSON({
         url: dispatchUrl(),
-        body: { notificationId, event, recipientType, recipientId, channel },
+        body: { notificationId, event, recipientType, recipientId, channel, ...(tokenIds ? { tokenIds } : {}) },
         ...(notBefore ? { notBefore } : {}),
         retries: 3,
     });

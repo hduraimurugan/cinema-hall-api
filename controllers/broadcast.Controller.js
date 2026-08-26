@@ -4,10 +4,31 @@ import { resolveAudience, sendBroadcastNow, scheduleBroadcastFor } from '../serv
 
 const AUDIENCE_TYPES = ['all_customers', 'all_admins', 'custom'];
 
+// GET /api/notifications/device-tokens?type=customer|admin&id=<uuid> — Super Admin only
+// Powers the "pick specific devices" step of the broadcast composer.
+export const getDeviceTokensForPicker = async (req, res) => {
+    const { type, id } = req.query;
+    if (!['customer', 'admin'].includes(type) || !id) {
+        return res.status(400).json({ error: 'type (customer|admin) and id are required' });
+    }
+
+    try {
+        const idCol = type === 'customer' ? 'customer_id' : 'admin_id';
+        const { rows } = await pool.query(
+            `SELECT id, platform, last_seen_at, created_at FROM device_tokens WHERE ${idCol} = $1 ORDER BY last_seen_at DESC`,
+            [id]
+        );
+        return res.status(200).json({ tokens: rows });
+    } catch (err) {
+        logger.error('❌ getDeviceTokensForPicker error:', { message: err.message });
+        return res.status(500).json({ error: 'Failed to fetch device tokens' });
+    }
+};
+
 // POST /api/notifications/broadcast — Super Admin only
-// Body: { title, body, imageUrl, audienceType, customerIds?, adminIds?, scheduledFor? }
+// Body: { title, body, imageUrl, audienceType, customerIds?, adminIds?, deviceTokenFilter?, scheduledFor? }
 export const createBroadcast = async (req, res) => {
-    const { title, body, imageUrl, audienceType, customerIds = [], adminIds = [], scheduledFor } = req.body;
+    const { title, body, imageUrl, audienceType, customerIds = [], adminIds = [], deviceTokenFilter = {}, scheduledFor } = req.body;
 
     if (!title || typeof title !== 'string' || !title.trim()) {
         return res.status(400).json({ error: 'title is required' });
@@ -17,6 +38,9 @@ export const createBroadcast = async (req, res) => {
     }
     if (audienceType === 'custom' && customerIds.length === 0 && adminIds.length === 0) {
         return res.status(400).json({ error: 'Select at least one person for a custom audience' });
+    }
+    if (typeof deviceTokenFilter !== 'object' || Array.isArray(deviceTokenFilter) || deviceTokenFilter === null) {
+        return res.status(400).json({ error: 'deviceTokenFilter must be an object' });
     }
 
     let scheduledDate = null;
@@ -29,12 +53,12 @@ export const createBroadcast = async (req, res) => {
     const isFutureSend = scheduledDate && scheduledDate.getTime() > Date.now();
 
     try {
-        const recipients = await resolveAudience({ audienceType, customerIds, adminIds });
+        const recipients = await resolveAudience({ audienceType, customerIds, adminIds, deviceTokenFilter });
 
         const { rows } = await pool.query(
             `INSERT INTO admin_broadcasts
-               (created_by, title, body, image_url, audience_type, recipient_customer_ids, recipient_admin_ids, target_count, scheduled_for)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               (created_by, title, body, image_url, audience_type, recipient_customer_ids, recipient_admin_ids, device_token_filter, target_count, scheduled_for)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING *`,
             [
                 req.admin.id,
@@ -44,6 +68,7 @@ export const createBroadcast = async (req, res) => {
                 audienceType,
                 audienceType === 'custom' ? customerIds : [],
                 audienceType === 'custom' ? adminIds : [],
+                audienceType === 'custom' ? JSON.stringify(deviceTokenFilter) : '{}',
                 recipients.length,
                 isFutureSend ? scheduledDate : null,
             ]

@@ -12,7 +12,7 @@ import {
     registerDeviceToken,
     unregisterDeviceToken,
 } from '../controllers/notifications.Controller.js';
-import { createBroadcast, listBroadcasts, getBroadcast } from '../controllers/broadcast.Controller.js';
+import { createBroadcast, listBroadcasts, getBroadcast, getDeviceTokensForPicker } from '../controllers/broadcast.Controller.js';
 
 const router = express.Router();
 
@@ -20,6 +20,7 @@ const router = express.Router();
 router.get('/broadcast', verifySuperAdmin, listBroadcasts);
 router.get('/broadcast/:id', verifySuperAdmin, getBroadcast);
 router.post('/broadcast', verifySuperAdmin, createBroadcast);
+router.get('/device-tokens', verifySuperAdmin, getDeviceTokensForPicker);
 
 // QStash webhook target — NO customer/admin auth, verified by Upstash-Signature.
 // express.raw() keeps req.body as a Buffer so the signature check sees the
