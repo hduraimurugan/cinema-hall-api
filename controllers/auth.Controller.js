@@ -16,6 +16,7 @@ import {
 import logger from '../utils/logger.js'
 import * as teamService from '../services/team.service.js'
 import { resolveOrgId } from '../middleware/requirePermission.js'
+import { notify } from '../services/notification/index.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -342,6 +343,16 @@ export const loginCinemaAdmin = async (req, res) => {
 
       if (lockedUntil) {
         sendAdminAccountLockedEmail(admin.email, admin.admin_name, lockedUntil).catch(() => {})
+        try {
+          const orgId = await resolveOrgId(admin.admin_id)
+          await notify(
+            'security_alert',
+            { type: 'admin', id: admin.admin_id, orgId },
+            { message: 'Your account was temporarily locked due to multiple failed login attempts.' }
+          )
+        } catch (notifyError) {
+          logger.error('[loginCinemaAdmin] Notification dispatch failed (non-fatal)', { message: notifyError.message })
+        }
         return res.status(423).json({
           code: 'ACCOUNT_LOCKED',
           error: `Too many failed attempts. Account locked for ${lockMinutes} minute${lockMinutes === 1 ? '' : 's'}.`,
@@ -632,6 +643,17 @@ export const resetPassword = async (req, res) => {
     sendAdminPasswordChangedEmail(record.email, record.name).catch(() => {})
     await logSecurityEvent(record.admin_id, 'PASSWORD_RESET_SUCCESS', req)
 
+    try {
+      const orgId = await resolveOrgId(record.admin_id)
+      await notify(
+        'security_alert',
+        { type: 'admin', id: record.admin_id, orgId },
+        { message: 'Your password was changed.' }
+      )
+    } catch (notifyError) {
+      logger.error('[resetPassword] Notification dispatch failed (non-fatal)', { message: notifyError.message })
+    }
+
     res.status(200).json({ message: 'Password reset successfully. Please log in with your new password.' })
   } catch (err) {
     logger.error('❌ resetPassword error:', { message: err.message })
@@ -692,6 +714,17 @@ export const changePassword = async (req, res) => {
 
     sendAdminPasswordChangedEmail(admin.email, admin.name).catch(() => {})
     await logSecurityEvent(adminId, 'PASSWORD_CHANGED', req)
+
+    try {
+      const orgId = await resolveOrgId(adminId)
+      await notify(
+        'security_alert',
+        { type: 'admin', id: adminId, orgId },
+        { message: 'Your password was changed.' }
+      )
+    } catch (notifyError) {
+      logger.error('[changePassword] Notification dispatch failed (non-fatal)', { message: notifyError.message })
+    }
 
     res.status(200).json({ message: 'Password changed successfully.' })
   } catch (err) {
@@ -1393,6 +1426,24 @@ export const acceptInvite = async (req, res) => {
       const statusCode = result.error === 'TOKEN_EXPIRED' ? 400 : 400
       return res.status(statusCode).json({ code: result.error, error: result.message })
     }
+
+    try {
+      let recipientAdminId = result.inviterAdminId
+      if (!recipientAdminId && result.orgId) {
+        const { rows } = await pool.query('SELECT owner_id FROM organizations WHERE id = $1', [result.orgId])
+        recipientAdminId = rows[0]?.owner_id || null
+      }
+      if (recipientAdminId) {
+        await notify(
+          'team_invite_accepted',
+          { type: 'admin', id: recipientAdminId, orgId: result.orgId },
+          { newAdminId: result.newAdminId, newAdminName: result.newAdminName }
+        )
+      }
+    } catch (notifyError) {
+      logger.error('[acceptInvite] Notification dispatch failed (non-fatal)', { message: notifyError.message })
+    }
+
     res.status(200).json({ message: 'Invite accepted successfully. You can now log in.' })
   } catch (err) {
     logger.error('❌ acceptInvite error:', { message: err.message })

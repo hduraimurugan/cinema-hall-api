@@ -4,6 +4,7 @@ import * as teamService from '../services/team.service.js';
 import { TeamServiceError } from '../services/team.service.js';
 import { resolveOrgId } from '../middleware/requirePermission.js';
 import { recordAuditLog } from '../utils/auditLog.js';
+import { notify } from '../services/notification/index.js';
 
 // Validation failures from the service layer are client errors, not 500s.
 const ERROR_STATUS = {
@@ -155,6 +156,21 @@ export const updateMember = async (req, res) => {
       metadata: { roleId, status },
     });
 
+    try {
+      let roleLabel = null;
+      if (result.role_id) {
+        const { rows } = await pool.query(`SELECT label FROM roles WHERE id = $1`, [result.role_id]);
+        roleLabel = rows[0]?.label || null;
+      }
+      await notify(
+        'team_role_changed',
+        { type: 'admin', id: result.admin_id, orgId },
+        { memberId: result.id, roleId: result.role_id, roleLabel, status: result.status }
+      );
+    } catch (notifyError) {
+      logger.error('[updateMember] Notification dispatch failed (non-fatal)', { message: notifyError.message });
+    }
+
     res.status(200).json({ message: 'Member updated successfully', member: result });
   } catch (err) {
     if (handleServiceError(err, res)) return;
@@ -178,6 +194,16 @@ export const removeMember = async (req, res) => {
       resourceType: 'team_member',
       resourceId: result.id,
     });
+
+    try {
+      await notify(
+        'team_removed',
+        { type: 'admin', id: result.admin_id, orgId },
+        { memberId: result.id }
+      );
+    } catch (notifyError) {
+      logger.error('[removeMember] Notification dispatch failed (non-fatal)', { message: notifyError.message });
+    }
 
     res.status(200).json({ message: 'Member removed successfully' });
   } catch (err) {

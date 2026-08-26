@@ -44,6 +44,28 @@ export function buildNotificationContent(event, data = {}) {
                 title: 'Security alert',
                 body: data.message || 'A security event was detected on your account.',
             };
+        case 'refund_failed':
+            return {
+                title: 'Refund failed',
+                body: `A refund of ₹${data.amount ?? ''} for ${data.movieTitle || 'a booking'} failed to process${data.reason ? `: ${data.reason}` : '.'}`,
+            };
+        case 'team_role_changed':
+            return {
+                title: 'Your team role was updated',
+                body: data.roleLabel
+                    ? `Your role has been changed to ${data.roleLabel}.`
+                    : `Your membership status has been updated to ${data.status || 'updated'}.`,
+            };
+        case 'team_removed':
+            return {
+                title: 'Removed from organization',
+                body: 'You have been removed from the organization. Contact your administrator if this is unexpected.',
+            };
+        case 'team_invite_accepted':
+            return {
+                title: 'Invite accepted',
+                body: `${data.newAdminName || 'A new team member'} has accepted your invite and joined the organization.`,
+            };
         default:
             return { title: event, body: '' };
     }

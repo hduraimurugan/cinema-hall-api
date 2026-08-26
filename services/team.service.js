@@ -308,8 +308,9 @@ export async function acceptInvite(rawToken, newPassword) {
 
     const tokenHash = hashToken(rawToken);
     const tokenResult = await client.query(
-      `SELECT avt.id, avt.admin_id, avt.expires_at
+      `SELECT avt.id, avt.admin_id, avt.expires_at, a.name, a.email
        FROM admin_verification_tokens avt
+       JOIN cinema_admin_user a ON a.id = avt.admin_id
        WHERE avt.token_hash = $1 AND avt.purpose = 'team_invite'`,
       [tokenHash]
     );
@@ -333,8 +334,10 @@ export async function acceptInvite(rawToken, newPassword) {
       [hashedPassword, record.admin_id]
     );
 
-    await client.query(
-      `UPDATE organization_members SET status = 'active', joined_at = now() WHERE admin_id = $1 AND status = 'invited'`,
+    const memberUpdateResult = await client.query(
+      `UPDATE organization_members SET status = 'active', joined_at = now()
+       WHERE admin_id = $1 AND status = 'invited'
+       RETURNING org_id, invited_by`,
       [record.admin_id]
     );
 
@@ -344,7 +347,15 @@ export async function acceptInvite(rawToken, newPassword) {
     );
 
     await client.query('COMMIT');
-    return { success: true };
+
+    const membership = memberUpdateResult.rows[0];
+    return {
+      success: true,
+      newAdminId: record.admin_id,
+      newAdminName: record.name,
+      orgId: membership?.org_id || null,
+      inviterAdminId: membership?.invited_by || null,
+    };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

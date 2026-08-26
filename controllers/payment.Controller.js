@@ -540,14 +540,49 @@ export const handleWebhook = async (req, res) => {
                 break;
             }
 
-            case "refund.failed":
-                await db.query(
+            case "refund.failed": {
+                const failedResult = await db.query(
                     `UPDATE refunds SET refund_status = 'failed', failure_reason = $1
-                     WHERE razorpay_refund_id = $2`,
+                     WHERE razorpay_refund_id = $2
+                     RETURNING id, booking_id, amount`,
                     [payload.refund.entity.description || 'Refund failed', payload.refund.entity.id]
                 );
                 logger.warn(`❌ Refund failed: ${payload.refund.entity.id}`);
+
+                const failedRefund = failedResult.rows[0];
+                if (failedRefund) {
+                    try {
+                        const bookingResult = await db.query(
+                            `SELECT m.title AS movie_title, ch.org_id, o.owner_id
+                             FROM bookings b
+                             JOIN shows sh ON sh.id = b.show_id
+                             JOIN movies m ON m.id = sh.movie_id
+                             JOIN screens sc ON sc.id = sh.screen_id
+                             JOIN cinema_hall ch ON ch.id = sc.cinema_hall_id
+                             JOIN organizations o ON o.id = ch.org_id
+                             WHERE b.id = $1`,
+                            [failedRefund.booking_id]
+                        );
+                        const bookingInfo = bookingResult.rows[0];
+                        if (bookingInfo?.owner_id) {
+                            await notify(
+                                'refund_failed',
+                                { type: 'admin', id: bookingInfo.owner_id, orgId: bookingInfo.org_id },
+                                {
+                                    bookingId: failedRefund.booking_id,
+                                    refundId: failedRefund.id,
+                                    movieTitle: bookingInfo.movie_title,
+                                    amount: failedRefund.amount,
+                                    reason: payload.refund.entity.description || 'Refund failed',
+                                }
+                            );
+                        }
+                    } catch (notifyError) {
+                        logger.error('[webhook refund.failed] Notification dispatch failed (non-fatal)', { message: notifyError.message });
+                    }
+                }
                 break;
+            }
 
             default:
                 logger.warn(`[webhook] Unhandled event type: ${event}`);
