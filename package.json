@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npx nodemon server.js",
+    "dev:all": "concurrently -n API,QSTASH -c blue,green \"npx nodemon server.js\" \"npx @upstash/qstash-cli@latest dev\"",
     "start": "node --import=@sentry/node/preload server.js",
     "migrate:backdrops": "node migrate-backdrop.js",
     "test": "vitest",
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.8",
+    "concurrently": "^10.0.5",
     "supertest": "^7.2.2",
     "vitest": "^4.1.8"
   }
