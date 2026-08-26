@@ -3,7 +3,7 @@ import logger from '../../utils/logger.js';
 import { insertInAppNotification } from './channels/inApp.js';
 import { sendPushForNotification } from './channels/push.js';
 import { resolveEnabledChannelsForBroadcast } from './preferences.js';
-import { publishDispatch } from './qstashClient.js';
+import { publishDispatch, cancelScheduledMessage } from './qstashClient.js';
 
 /**
  * Resolve an audience selector into a flat list of {type, id} recipients,
@@ -145,4 +145,33 @@ export async function scheduleBroadcastFor(broadcast, recipients, scheduledFor) 
     }
 
     await pool.query(`UPDATE admin_broadcasts SET status = 'scheduled' WHERE id = $1`, [broadcast.id]);
+}
+
+/**
+ * Deletes a broadcast: cancels any still-pending QStash sends so they don't
+ * fire against a notification row that's about to disappear, removes it
+ * from every recipient's in-app feed, then removes the broadcast itself.
+ * notification_dispatch_log rows are left in place (their broadcast_id just
+ * goes NULL via the FK) as a send-attempt audit trail — see
+ * migration_admin_broadcasts.sql.
+ */
+export async function deleteBroadcast(broadcastId) {
+    const { rows: pending } = await pool.query(
+        `SELECT id, qstash_message_id FROM notification_dispatch_log
+         WHERE broadcast_id = $1 AND status = 'queued' AND qstash_message_id IS NOT NULL`,
+        [broadcastId]
+    );
+    for (const row of pending) {
+        try {
+            await cancelScheduledMessage(row.qstash_message_id);
+            await pool.query(`UPDATE notification_dispatch_log SET status = 'skipped' WHERE id = $1`, [row.id]);
+        } catch (err) {
+            // Message may have already fired or expired — not fatal either way.
+            logger.warn('[deleteBroadcast] Failed to cancel scheduled message', { broadcastId, message: err.message });
+        }
+    }
+
+    await pool.query(`DELETE FROM notifications WHERE broadcast_id = $1`, [broadcastId]);
+    const { rowCount } = await pool.query(`DELETE FROM admin_broadcasts WHERE id = $1`, [broadcastId]);
+    return rowCount > 0;
 }

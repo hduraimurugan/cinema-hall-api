@@ -1,6 +1,6 @@
 import pool from '../db.js';
 import logger from '../utils/logger.js';
-import { resolveAudience, sendBroadcastNow, scheduleBroadcastFor } from '../services/notification/broadcast.js';
+import { resolveAudience, sendBroadcastNow, scheduleBroadcastFor, deleteBroadcast as deleteBroadcastRecords } from '../services/notification/broadcast.js';
 
 const AUDIENCE_TYPES = ['all_customers', 'all_admins', 'custom'];
 
@@ -139,5 +139,22 @@ export const getBroadcast = async (req, res) => {
     } catch (err) {
         logger.error('❌ getBroadcast error:', { message: err.message });
         return res.status(500).json({ error: 'Failed to fetch broadcast' });
+    }
+};
+
+// DELETE /api/notifications/broadcast/:id — Super Admin only
+// Removes it from every recipient's in-app feed and cancels any pending
+// scheduled send.
+export const deleteBroadcast = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const deleted = await deleteBroadcastRecords(id);
+        if (!deleted) {
+            return res.status(404).json({ error: 'Broadcast not found' });
+        }
+        return res.status(200).json({ deleted: true });
+    } catch (err) {
+        logger.error('❌ deleteBroadcast error:', { message: err.message });
+        return res.status(500).json({ error: 'Failed to delete broadcast' });
     }
 };

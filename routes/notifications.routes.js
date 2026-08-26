@@ -12,14 +12,15 @@ import {
     registerDeviceToken,
     unregisterDeviceToken,
 } from '../controllers/notifications.Controller.js';
-import { createBroadcast, listBroadcasts, getBroadcast, getDeviceTokensForPicker } from '../controllers/broadcast.Controller.js';
+import { createBroadcast, listBroadcasts, getBroadcast, deleteBroadcast, getDeviceTokensForPicker } from '../controllers/broadcast.Controller.js';
 
 const router = express.Router();
 
-// Super Admin — manual broadcast notifications (create/list/detail).
+// Super Admin — manual broadcast notifications (create/list/detail/delete).
 router.get('/broadcast', verifySuperAdmin, listBroadcasts);
 router.get('/broadcast/:id', verifySuperAdmin, getBroadcast);
 router.post('/broadcast', verifySuperAdmin, createBroadcast);
+router.delete('/broadcast/:id', verifySuperAdmin, deleteBroadcast);
 router.get('/device-tokens', verifySuperAdmin, getDeviceTokensForPicker);
 
 // QStash webhook target — NO customer/admin auth, verified by Upstash-Signature.
