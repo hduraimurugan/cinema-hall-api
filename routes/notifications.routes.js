@@ -1,6 +1,7 @@
 import express from 'express';
 import { handleDispatch } from '../services/notification/dispatch.Controller.js';
 import { identifyRecipient } from '../middleware/identifyRecipient.js';
+import { verifySuperAdmin } from '../middleware/verifyCinemaAdmin.js';
 import {
     listNotifications,
     getUnreadCount,
@@ -11,8 +12,14 @@ import {
     registerDeviceToken,
     unregisterDeviceToken,
 } from '../controllers/notifications.Controller.js';
+import { createBroadcast, listBroadcasts, getBroadcast } from '../controllers/broadcast.Controller.js';
 
 const router = express.Router();
+
+// Super Admin — manual broadcast notifications (create/list/detail).
+router.get('/broadcast', verifySuperAdmin, listBroadcasts);
+router.get('/broadcast/:id', verifySuperAdmin, getBroadcast);
+router.post('/broadcast', verifySuperAdmin, createBroadcast);
 
 // QStash webhook target — NO customer/admin auth, verified by Upstash-Signature.
 // express.raw() keeps req.body as a Buffer so the signature check sees the

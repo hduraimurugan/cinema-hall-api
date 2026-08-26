@@ -66,6 +66,13 @@ export function buildNotificationContent(event, data = {}) {
                 title: 'Invite accepted',
                 body: `${data.newAdminName || 'A new team member'} has accepted your invite and joined the organization.`,
             };
+        case 'admin_broadcast':
+            // Title/body are composed by the super admin, not templated — see
+            // controllers/broadcast.Controller.js.
+            return {
+                title: data.title || 'Notification',
+                body: data.body || '',
+            };
         default:
             return { title: event, body: '' };
     }

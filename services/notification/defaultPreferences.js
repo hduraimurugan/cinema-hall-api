@@ -15,4 +15,5 @@ export const DEFAULT_EVENT_PREFERENCES = {
     team_role_changed: { email: false, sms: false, whatsapp: false, push: true },
     team_removed: { email: true, sms: false, whatsapp: false, push: true },
     team_invite_accepted: { email: false, sms: false, whatsapp: false, push: true },
+    admin_broadcast: { email: false, sms: false, whatsapp: false, push: true },
 };

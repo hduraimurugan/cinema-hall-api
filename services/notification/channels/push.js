@@ -25,6 +25,7 @@ export async function sendPushForNotification(recipient, notification) {
         notification: {
             title: notification.title,
             body: notification.body || '',
+            ...(notification.data?.imageUrl ? { imageUrl: notification.data.imageUrl } : {}),
         },
         data: {
             event: notification.event,
