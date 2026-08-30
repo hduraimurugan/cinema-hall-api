@@ -831,3 +831,58 @@ export const SHOW_REMINDER_TEMPLATE = `
 </html>
 `
 
+// {imageBlock} and {ctaBlock} are pre-rendered HTML fragments (or '' when not
+// supplied) — see sendBroadcastEmail() in emails.js — keeping this file's
+// literal String.replace convention instead of introducing a template engine.
+export const BROADCAST_TEMPLATE = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0f0f14;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0f14;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <tr>
+            <td style="padding:0 0 32px 0;text-align:center;">
+              <table cellpadding="0" cellspacing="0" style="display:inline-table;">
+                <tr>
+                  <td style="background:rgba(244,63,94,0.15);border:1px solid rgba(244,63,94,0.3);border-radius:12px;padding:10px 14px;vertical-align:middle;">
+                    <span style="font-size:20px;">🎬</span>
+                  </td>
+                  <td style="padding-left:10px;vertical-align:middle;">
+                    <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:0.5px;">CineMax</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#16161e;border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:40px 40px 32px;">
+              <p style="color:#f43f5e;font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin:0 0 12px;">Announcement</p>
+              <h1 style="color:#ffffff;font-size:26px;font-weight:700;margin:0 0 16px;line-height:1.3;">{title}</h1>
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 24px;">
+                Hi <strong style="color:#e2e8f0;">{name}</strong>,
+              </p>
+              {imageBlock}
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 24px;">{message}</p>
+              {ctaBlock}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 0 0;text-align:center;">
+              <p style="color:#334155;font-size:12px;margin:0;">© 2026 CineMax · This is an automated message, please do not reply.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`
+

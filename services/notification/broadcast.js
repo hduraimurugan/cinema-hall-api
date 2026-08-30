@@ -2,30 +2,59 @@ import pool from '../../db.js';
 import logger from '../../utils/logger.js';
 import { insertInAppNotification } from './channels/inApp.js';
 import { sendPushForNotification } from './channels/push.js';
+import { sendEmailForNotification } from './channels/email.js';
 import { resolveEnabledChannelsForBroadcast } from './preferences.js';
 import { publishDispatch, cancelScheduledMessage } from './qstashClient.js';
 
+const EXTERNAL_CHANNELS = ['push', 'email'];
+
 /**
- * Resolve an audience selector into a flat list of {type, id} recipients,
- * the same shape notify()/insertInAppNotification() already expect.
+ * Resolve an audience selector into a flat list of recipients carrying enough
+ * contact info to send every channel synchronously (sendBroadcastNow doesn't
+ * go through the QStash webhook's fresh re-fetch, so it needs email/name up
+ * front) — { type, id, email, name, deviceTokenIds }.
  */
-export async function resolveAudience({ audienceType, customerIds = [], adminIds = [], deviceTokenFilter = {} }) {
+export async function resolveAudience({ audienceType, customerIds = [], adminIds = [], deviceTokenFilter = {}, cinemaHallId }) {
     if (audienceType === 'all_customers') {
-        const { rows } = await pool.query(`SELECT id FROM customers`);
-        return rows.map((r) => ({ type: 'customer', id: r.id, deviceTokenIds: null }));
+        const { rows } = await pool.query(`SELECT id, email, name FROM customers`);
+        return rows.map((r) => ({ type: 'customer', id: r.id, email: r.email, name: r.name, deviceTokenIds: null }));
     }
     if (audienceType === 'all_admins') {
         // Matches the existing getAllAdmins scope (auth.Controller.js) — hall
         // admins only, not other superAdmins or org staff.
-        const { rows } = await pool.query(`SELECT id FROM cinema_admin_user WHERE role = 'admin'`);
-        return rows.map((r) => ({ type: 'admin', id: r.id, deviceTokenIds: null }));
+        const { rows } = await pool.query(`SELECT id, email, name FROM cinema_admin_user WHERE role = 'admin'`);
+        return rows.map((r) => ({ type: 'admin', id: r.id, email: r.email, name: r.name, deviceTokenIds: null }));
     }
-    // deviceTokenIds: null means "every device this person has registered"
-    // (the default); an array means the admin narrowed it to specific
-    // device_tokens rows via the picker — see broadcast.Controller.js.
+    if (audienceType === 'hall_customers') {
+        // Customers who have booked at this specific hall — used for
+        // announcing a hall-scoped offer, whose code only works there. Same
+        // show->screen->hall join validateOfferCode() uses to enforce scope.
+        if (!cinemaHallId) return [];
+        const { rows } = await pool.query(
+            `SELECT DISTINCT c.id, c.email, c.name
+             FROM bookings b
+             JOIN shows sh    ON sh.id = b.show_id
+             JOIN screens sc  ON sc.id = sh.screen_id
+             JOIN customers c ON c.id = b.customer_id
+             WHERE sc.cinema_hall_id = $1 AND b.customer_id IS NOT NULL`,
+            [cinemaHallId]
+        );
+        return rows.map((r) => ({ type: 'customer', id: r.id, email: r.email, name: r.name, deviceTokenIds: null }));
+    }
+    // custom — deviceTokenIds: null means "every device this person has
+    // registered" (the default); an array means the admin narrowed it to
+    // specific device_tokens rows via the picker — see broadcast.Controller.js.
+    const [customersRes, adminsRes] = await Promise.all([
+        customerIds.length > 0
+            ? pool.query(`SELECT id, email, name FROM customers WHERE id = ANY($1::uuid[])`, [customerIds])
+            : Promise.resolve({ rows: [] }),
+        adminIds.length > 0
+            ? pool.query(`SELECT id, email, name FROM cinema_admin_user WHERE id = ANY($1::uuid[])`, [adminIds])
+            : Promise.resolve({ rows: [] }),
+    ]);
     return [
-        ...customerIds.map((id) => ({ type: 'customer', id, deviceTokenIds: deviceTokenFilter[`customer:${id}`] || null })),
-        ...adminIds.map((id) => ({ type: 'admin', id, deviceTokenIds: deviceTokenFilter[`admin:${id}`] || null })),
+        ...customersRes.rows.map((r) => ({ type: 'customer', id: r.id, email: r.email, name: r.name, deviceTokenIds: deviceTokenFilter[`customer:${r.id}`] || null })),
+        ...adminsRes.rows.map((r) => ({ type: 'admin', id: r.id, email: r.email, name: r.name, deviceTokenIds: deviceTokenFilter[`admin:${r.id}`] || null })),
     ];
 }
 
@@ -47,36 +76,61 @@ async function insertDispatchLogRow({ notificationId, broadcastId, recipient, ch
     );
 }
 
+async function sendExternalChannel(channel, recipient, notification) {
+    if (channel === 'push') {
+        return sendPushForNotification(recipient, notification, { tokenIds: recipient.deviceTokenIds });
+    }
+    if (channel === 'email') {
+        if (!recipient.email) throw new Error('Recipient has no email address');
+        return sendEmailForNotification(recipient, notification);
+    }
+    throw new Error(`Channel "${channel}" is not implemented`);
+}
+
 /**
  * Send a broadcast immediately — synchronous, no QStash — so "Send Now"
  * works on localhost with no public URL/tunnel and returns real
  * success/failure counts in the same request.
+ *
+ * `broadcast.channels` (a subset of push/email chosen by the admin) is
+ * intersected with each recipient's own admin_broadcast preference — the
+ * admin's selection is a ceiling, not an override, so a recipient who opted
+ * out of broadcast email still won't get one. In-app always fires and is
+ * never counted as a failure on its own: a recipient is only "failed" when
+ * every *requested* external channel failed for them.
  */
-export async function sendBroadcastNow(broadcast, recipients) {
+export async function sendBroadcastNow(broadcast, recipients, extraData = {}) {
     let sent = 0;
     let failed = 0;
+    const requestedChannels = (broadcast.channels || []).filter((c) => EXTERNAL_CHANNELS.includes(c));
 
     for (const recipient of recipients) {
         try {
             const notification = await insertInAppNotification({
                 event: 'admin_broadcast',
                 recipient,
-                data: { title: broadcast.title, body: broadcast.body, imageUrl: broadcast.image_url },
+                data: { title: broadcast.title, body: broadcast.body, imageUrl: broadcast.image_url, ...extraData },
             });
             await pool.query(`UPDATE notifications SET broadcast_id = $1 WHERE id = $2`, [broadcast.id, notification.id]);
+            await insertDispatchLogRow({ notificationId: notification.id, broadcastId: broadcast.id, recipient, channel: 'in_app', status: 'sent' });
 
-            const channels = await resolveEnabledChannelsForBroadcast(recipient, 'admin_broadcast');
-            if (!channels.includes('push')) {
-                failed++;
-                continue;
+            const allowedChannels = await resolveEnabledChannelsForBroadcast(recipient, 'admin_broadcast');
+            const channels = requestedChannels.filter((c) => allowedChannels.includes(c));
+
+            let anySucceeded = false;
+            for (const channel of channels) {
+                try {
+                    const target = await sendExternalChannel(channel, recipient, notification);
+                    await insertDispatchLogRow({ notificationId: notification.id, broadcastId: broadcast.id, recipient, channel, status: 'sent', target });
+                    anySucceeded = true;
+                } catch (channelErr) {
+                    await insertDispatchLogRow({ notificationId: notification.id, broadcastId: broadcast.id, recipient, channel, status: 'failed', error: channelErr.message });
+                }
             }
 
-            try {
-                const target = await sendPushForNotification(recipient, notification, { tokenIds: recipient.deviceTokenIds });
-                await insertDispatchLogRow({ notificationId: notification.id, broadcastId: broadcast.id, recipient, channel: 'push', status: 'sent', target });
+            if (channels.length === 0 || anySucceeded) {
                 sent++;
-            } catch (pushErr) {
-                await insertDispatchLogRow({ notificationId: notification.id, broadcastId: broadcast.id, recipient, channel: 'push', status: 'failed', error: pushErr.message });
+            } else {
                 failed++;
             }
         } catch (err) {
@@ -99,19 +153,21 @@ export async function sendBroadcastNow(broadcast, recipients) {
  * The existing /api/notifications/dispatch webhook fires each recipient's
  * send at the scheduled instant; no new webhook needed.
  */
-export async function scheduleBroadcastFor(broadcast, recipients, scheduledFor) {
+export async function scheduleBroadcastFor(broadcast, recipients, scheduledFor, extraData = {}) {
     const notBefore = Math.floor(scheduledFor.getTime() / 1000);
+    const requestedChannels = (broadcast.channels || []).filter((c) => EXTERNAL_CHANNELS.includes(c));
 
     for (const recipient of recipients) {
         const notification = await insertInAppNotification({
             event: 'admin_broadcast',
             recipient,
-            data: { title: broadcast.title, body: broadcast.body, imageUrl: broadcast.image_url },
+            data: { title: broadcast.title, body: broadcast.body, imageUrl: broadcast.image_url, ...extraData },
             scheduledFor,
         });
         await pool.query(`UPDATE notifications SET broadcast_id = $1 WHERE id = $2`, [broadcast.id, notification.id]);
 
-        const channels = await resolveEnabledChannelsForBroadcast(recipient, 'admin_broadcast');
+        const allowedChannels = await resolveEnabledChannelsForBroadcast(recipient, 'admin_broadcast');
+        const channels = requestedChannels.filter((c) => allowedChannels.includes(c));
         for (const channel of channels) {
             const { rows } = await pool.query(
                 `INSERT INTO notification_dispatch_log

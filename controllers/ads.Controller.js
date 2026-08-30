@@ -1,6 +1,7 @@
 import pool from '../db.js';
 import jwt from 'jsonwebtoken';
 import logger from '../utils/logger.js';
+import { announceAd } from '../services/notification/announce.js';
 
 // GET /api/ads — Admin: list all ads with total click count
 export const getAllAds = async (req, res) => {
@@ -21,7 +22,7 @@ export const getAllAds = async (req, res) => {
 
 // POST /api/ads/create — Admin: create a new ad
 export const createAd = async (req, res) => {
-  const { title, image_url, click_url, placement, start_date, end_date, is_active } = req.body;
+  const { title, image_url, click_url, placement, start_date, end_date, is_active, notify } = req.body;
 
   if (!title || !image_url || !placement || !start_date || !end_date) {
     return res.status(400).json({ error: 'title, image_url, placement, start_date, end_date are required' });
@@ -33,7 +34,25 @@ export const createAd = async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [title, image_url, click_url || null, placement, start_date, end_date, is_active ?? true]
     );
-    res.status(201).json({ ad: rows[0] });
+
+    let announced = false;
+    if (notify?.enabled) {
+      try {
+        await announceAd(rows[0], {
+          adminId: req.admin?.id,
+          channels: notify.channels,
+          title: notify.title,
+          body: notify.body,
+        });
+        announced = true;
+      } catch (notifyErr) {
+        // Never fail ad creation over a dead FCM token or SMTP hiccup — the
+        // ad already exists, only the announcement failed.
+        logger.error('announceAd (on create) error:', { message: notifyErr.message });
+      }
+    }
+
+    res.status(201).json({ ad: rows[0], announced });
   } catch (err) {
     logger.error('createAd error:', { message: err.message });
     res.status(500).json({ error: 'Failed to create ad' });
@@ -71,6 +90,30 @@ export const deleteAd = async (req, res) => {
   } catch (err) {
     logger.error('deleteAd error:', { message: err.message });
     res.status(500).json({ error: 'Failed to delete ad' });
+  }
+};
+
+// POST /api/ads/:id/announce — Admin: re-usable "Announce" action for an ad
+// that already exists. Ads are already superAdmin-only end to end (routes.js),
+// so no extra ownership check is needed here beyond the route guard.
+export const announceAdById = async (req, res) => {
+  const { id } = req.params;
+  const { channels, title, body } = req.body || {};
+
+  try {
+    const { rows } = await pool.query(`SELECT * FROM ads WHERE id = $1`, [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Ad not found' });
+
+    const { broadcast } = await announceAd(rows[0], {
+      adminId: req.admin?.id,
+      channels,
+      title,
+      body,
+    });
+    res.status(201).json({ broadcast });
+  } catch (err) {
+    logger.error('announceAdById error:', { message: err.message });
+    res.status(500).json({ error: 'Failed to announce ad' });
   }
 };
 

@@ -5,6 +5,7 @@ import {
   createAd,
   updateAd,
   deleteAd,
+  announceAdById,
   getAdClicks,
   getActiveAds,
   recordClick,
@@ -21,6 +22,7 @@ router.get('/', verifySuperAdmin, getAllAds);
 router.post('/create', verifySuperAdmin, createAd);
 router.put('/update/:id', verifySuperAdmin, updateAd);
 router.delete('/delete/:id', verifySuperAdmin, deleteAd);
+router.post('/:id/announce', verifySuperAdmin, announceAdById);
 router.get('/:id/clicks', verifySuperAdmin, getAdClicks);
 
 export default router;

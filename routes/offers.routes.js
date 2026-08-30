@@ -6,6 +6,7 @@ import {
     createOffer,
     updateOffer,
     deleteOffer,
+    announceOfferById,
     getActiveOffers,
     validateOffer,
 } from "../controllers/offers.Controller.js";
@@ -30,5 +31,6 @@ router.get("/:id", verifyCinemaAdminAccessToken, requirePermission('offers.read'
 router.post("/create", verifyCinemaAdminAccessToken, requirePermission('offers.create'), createOffer);
 router.put("/update/:id", verifyCinemaAdminAccessToken, requirePermission('offers.update'), updateOffer);
 router.delete("/delete/:id", verifyCinemaAdminAccessToken, requirePermission('offers.delete'), deleteOffer);
+router.post("/:id/announce", verifyCinemaAdminAccessToken, requirePermission('offers.update'), announceOfferById);
 
 export default router;

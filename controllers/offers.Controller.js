@@ -2,6 +2,7 @@ import db from "../db.js";
 import logger from '../utils/logger.js';
 import { resolveOrgId } from '../middleware/requirePermission.js';
 import { recordAuditLog } from '../utils/auditLog.js';
+import { announceOffer } from '../services/notification/announce.js';
 
 // ─────────────────────────────────────────────────────────────
 // Shared validation helper (used by validateOffer + createOrder)
@@ -213,6 +214,7 @@ export const createOffer = async (req, res) => {
         is_active, valid_until,
         scope, cinema_hall_id,
         user_eligibility, user_joined_after,
+        notify,
     } = req.body;
 
     if (!code || !title || !discount_type || !discount_value || !valid_until) {
@@ -274,7 +276,24 @@ export const createOffer = async (req, res) => {
             hallId: result.rows[0].cinema_hall_id,
         });
 
-        return res.status(201).json({ offer: result.rows[0] });
+        let announced = false;
+        if (notify?.enabled) {
+            try {
+                await announceOffer(result.rows[0], {
+                    adminId: admin_id,
+                    channels: notify.channels,
+                    title: notify.title,
+                    body: notify.body,
+                });
+                announced = true;
+            } catch (notifyErr) {
+                // Never fail offer creation over a dead FCM token or SMTP
+                // hiccup — the offer already exists, only the announcement failed.
+                logger.error("❌ announceOffer (on create) error:", { message: notifyErr.message });
+            }
+        }
+
+        return res.status(201).json({ offer: result.rows[0], announced });
     } catch (error) {
         if (error.code === '23505') {
             return res.status(409).json({ error: "An offer with this code already exists." });
@@ -441,6 +460,57 @@ export const deleteOffer = async (req, res) => {
     } catch (error) {
         logger.error("❌ deleteOffer error:", { error });
         return res.status(500).json({ error: "Failed to delete offer." });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/offers/:id/announce  (superAdmin, or the offer's creator)
+// Re-usable "Announce" action for an offer that already exists — the same
+// ownership/scope guard updateOffer applies, since sending a promo blast is
+// at least as consequential as editing the offer.
+// ─────────────────────────────────────────────────────────────
+export const announceOfferById = async (req, res) => {
+    const { id } = req.params;
+    const { channels, title, body } = req.body || {};
+    const isSuperAdmin = req.admin.role === 'superAdmin';
+
+    try {
+        const existing = await db.query(`SELECT * FROM offers WHERE id = $1`, [id]);
+        if (existing.rowCount === 0) {
+            return res.status(404).json({ error: "Offer not found." });
+        }
+        const offer = existing.rows[0];
+        if (!isSuperAdmin && offer.created_by !== req.admin.id) {
+            return res.status(403).json({ error: "You can only announce offers you created." });
+        }
+        if (offer.scope === 'hall' && !isSuperAdmin) {
+            const orgId = await resolveOrgId(req.admin.id);
+            const hallResult = await db.query(`SELECT org_id FROM cinema_hall WHERE id = $1`, [offer.cinema_hall_id]);
+            if (!orgId || hallResult.rowCount === 0 || hallResult.rows[0].org_id !== orgId) {
+                return res.status(403).json({ error: "You can only announce offers for your own cinema hall." });
+            }
+        }
+
+        const { broadcast } = await announceOffer(offer, {
+            adminId: req.admin.id,
+            channels,
+            title,
+            body,
+        });
+
+        await recordAuditLog(req, {
+            action: 'offers.announce',
+            resourceType: 'offer',
+            resourceId: offer.id,
+            resourceLabel: offer.code,
+            hallId: offer.cinema_hall_id,
+        });
+
+        return res.status(201).json({ broadcast });
+    } catch (error) {
+        logger.error("❌ announceOfferById error:", { message: error.message });
+        return res.status(500).json({ error: "Failed to announce offer." });
     }
 };
 

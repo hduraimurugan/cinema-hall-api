@@ -15,6 +15,7 @@ import {
   REFUND_SETTLED_TEMPLATE,
   SHOW_CANCELLED_TEMPLATE,
   SHOW_REMINDER_TEMPLATE,
+  BROADCAST_TEMPLATE,
 } from "./emailTemplate.js"
 import { transporter } from "./mail.config.js"
 import dotenv from 'dotenv';
@@ -354,6 +355,40 @@ export const sendShowReminderEmail = async (email, data) => {
   } catch (error) {
     logger.error('Error sending show reminder email:', { message: error.message })
     throw new Error('Error sending show reminder email')
+  }
+}
+
+/**
+ * Sends a Super Admin broadcast / offer / ad announcement email. Unlike the
+ * event-templated senders above, title/message here are admin-authored
+ * (or defaulted by announceOffer/announceAd), so callers control the copy.
+ * @param {string} email
+ * @param {object} data - { name, title, message, imageUrl, ctaUrl, ctaLabel }
+ */
+export const sendBroadcastEmail = async (email, data) => {
+  const imageBlock = data.imageUrl
+    ? `<table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px;"><tr><td><img src="${data.imageUrl}" alt="" style="width:100%;border-radius:8px;display:block;" /></td></tr></table>`
+    : ''
+  const ctaBlock = data.ctaUrl
+    ? `<table cellpadding="0" cellspacing="0"><tr><td style="background:#f43f5e;border-radius:8px;"><a href="${data.ctaUrl}" style="display:inline-block;padding:12px 24px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;">${data.ctaLabel || 'View details'}</a></td></tr></table>`
+    : ''
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_ID,
+      to: email,
+      subject: data.title || 'CineMax announcement',
+      html: BROADCAST_TEMPLATE
+        .replace(/{name}/g, data.name || 'there')
+        .replace(/{title}/g, data.title || 'Announcement')
+        .replace(/{message}/g, data.message || '')
+        .replace('{imageBlock}', imageBlock)
+        .replace('{ctaBlock}', ctaBlock),
+      category: 'Broadcast',
+    })
+    logger.info('Broadcast email sent', { email })
+  } catch (error) {
+    logger.error('Error sending broadcast email:', { message: error.message })
+    throw new Error('Error sending broadcast email')
   }
 }
 

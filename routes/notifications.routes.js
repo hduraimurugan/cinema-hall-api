@@ -12,12 +12,15 @@ import {
     registerDeviceToken,
     unregisterDeviceToken,
 } from '../controllers/notifications.Controller.js';
-import { createBroadcast, listBroadcasts, getBroadcast, deleteBroadcast, getDeviceTokensForPicker } from '../controllers/broadcast.Controller.js';
+import { createBroadcast, listBroadcasts, getBroadcast, deleteBroadcast, getDeviceTokensForPicker, getNotificationActivity } from '../controllers/broadcast.Controller.js';
 
 const router = express.Router();
 
-// Super Admin — manual broadcast notifications (create/list/detail/delete).
+// Super Admin — manual broadcast notifications (create/list/detail/delete)
+// plus the Auto tab's unified activity feed (offer/ad announcements + event
+// notifications).
 router.get('/broadcast', verifySuperAdmin, listBroadcasts);
+router.get('/activity', verifySuperAdmin, getNotificationActivity);
 router.get('/broadcast/:id', verifySuperAdmin, getBroadcast);
 router.post('/broadcast', verifySuperAdmin, createBroadcast);
 router.delete('/broadcast/:id', verifySuperAdmin, deleteBroadcast);

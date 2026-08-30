@@ -4,6 +4,7 @@ import {
     sendRefundSettledEmail,
     sendShowCancelledEmail,
     sendShowReminderEmail,
+    sendBroadcastEmail,
 } from '../../../mail/emails.js';
 
 // event -> function(recipient, notification) that actually sends the email.
@@ -48,6 +49,19 @@ const EMAIL_SENDERS = {
             movieTitle: notification.data.movieTitle,
             startTime: notification.data.startTime,
             seats: notification.data.seats,
+        });
+    },
+    // Powers Super Admin broadcasts and Offer/Ad announcements — title/body
+    // are admin-authored (or defaulted by announceOffer/announceAd), not
+    // templated from a fixed set of fields like the events above.
+    admin_broadcast: async (recipient, notification) => {
+        await sendBroadcastEmail(recipient.email, {
+            name: recipient.name,
+            title: notification.data.title || notification.title,
+            message: notification.data.body || notification.body,
+            imageUrl: notification.data.imageUrl,
+            ctaUrl: notification.data.ctaUrl,
+            ctaLabel: notification.data.ctaLabel,
         });
     },
 };

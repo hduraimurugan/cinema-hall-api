@@ -15,5 +15,10 @@ export const DEFAULT_EVENT_PREFERENCES = {
     team_role_changed: { email: false, sms: false, whatsapp: false, push: true },
     team_removed: { email: true, sms: false, whatsapp: false, push: true },
     team_invite_accepted: { email: false, sms: false, whatsapp: false, push: true },
-    admin_broadcast: { email: false, sms: false, whatsapp: false, push: true },
+    // Both default on: the admin's own channel selection on a broadcast is
+    // the ceiling (see resolveEnabledChannelsForBroadcast), so this only
+    // needs to represent "the recipient hasn't opted out" — email was
+    // previously off by default, which meant an email-enabled broadcast
+    // silently reached nobody until the recipient dug into settings.
+    admin_broadcast: { email: true, sms: false, whatsapp: false, push: true },
 };
