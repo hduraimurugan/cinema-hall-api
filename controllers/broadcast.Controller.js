@@ -175,7 +175,7 @@ export const getNotificationActivity = async (req, res) => {
                 origin_id: r.origin_id,
                 recipient_label: audienceLabelForRow(r),
                 recipient_email: null,
-                channels: r.channels,
+                channels: ['in_app', ...(r.channels || [])],
                 status: r.status,
                 sent_count: r.sent_count,
                 failed_count: r.failed_count,
