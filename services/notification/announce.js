@@ -98,7 +98,7 @@ export async function announceAd(ad, opts = {}) {
         originId: ad.id,
         recipients,
         scheduledFor,
-        extraData: ad.click_url ? { ctaUrl: ad.click_url, ctaLabel: 'View offer' } : {},
+        extraData: ad.click_url ? { ctaUrl: ad.click_url, ctaLabel: 'View details' } : {},
     });
 }
 
