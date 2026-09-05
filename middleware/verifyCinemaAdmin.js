@@ -3,6 +3,7 @@ import pool from '../db.js'
 import db from "../db.js";
 import logger from '../utils/logger.js';
 import { hashToken } from '../utils/hashToken.js';
+import { resolveApiKey } from '../utils/apiKeyAuth.js';
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -14,8 +15,27 @@ const bearerFrom = req =>
     ? req.headers.authorization.split(' ')[1]
     : null
 
+// A personal API key (e.g. minted for the cinemax MCP server) is checked
+// first — it's the credential a machine client presents, and it never
+// collides with a real JWT (different prefix, verified against a DB hash
+// rather than jwt.verify). Falls through to normal cookie/Bearer JWT auth
+// when no key header is present at all.
+const apiKeyFrom = req => {
+  const key = req.headers['x-api-key']
+  return typeof key === 'string' && key.startsWith('cmk_') ? key : null
+}
+
 // ✅ Middleware to verify Access Token
 export const verifyCinemaAdminAccessToken = async (req, res, next) => {
+  const apiKey = apiKeyFrom(req)
+  if (apiKey) {
+    const admin = await resolveApiKey(apiKey)
+    if (!admin) return res.status(401).json({ message: 'Invalid or expired API key' })
+    req.admin = admin
+    req.viaApiKey = true
+    return next()
+  }
+
   let token = req.cookies.accessToken
   if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
     token = req.headers.authorization.split(' ')[1]
@@ -71,6 +91,18 @@ export const verifyCinemaAdminRefreshToken = async (req, res, next) => {
 
 // ✅ Middleware to verify Super Admin Access
 export const verifySuperAdmin = async (req, res, next) => {
+  const apiKey = apiKeyFrom(req)
+  if (apiKey) {
+    const admin = await resolveApiKey(apiKey)
+    if (!admin) return res.status(401).json({ message: 'Invalid or expired API key' })
+    if (admin.role !== 'superAdmin') {
+      return res.status(403).json({ message: 'Access denied: Super admin only' })
+    }
+    req.admin = admin
+    req.viaApiKey = true
+    return next()
+  }
+
   let token = req.cookies.accessToken
   if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
     token = req.headers.authorization.split(' ')[1]

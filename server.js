@@ -33,6 +33,7 @@ import teamRoutes from './routes/team.routes.js';
 import rolesRoutes from './routes/roles.routes.js';
 import auditLogsRoutes from './routes/auditLogs.routes.js';
 import notificationsRoutes from './routes/notifications.routes.js';
+import apiKeysRoutes from './routes/apiKeys.routes.js';
 import { cleanupExpiredHolds } from './controllers/booking.Controller.js';
 import { updateShowStatuses } from './controllers/shows.Controller.js';
 
@@ -124,6 +125,7 @@ app.use('/api/team', teamRoutes);
 app.use('/api/roles', rolesRoutes);
 app.use('/api/audit-logs', auditLogsRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/api-keys', apiKeysRoutes);
 
 // Ping route
 app.get('/ping', (req, res) => res.send('pong'));

@@ -419,6 +419,23 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin_id ON admin_sessions(admin_id);
 
 -- ============================
+-- ADMIN API KEYS
+-- ============================
+CREATE TABLE IF NOT EXISTS admin_api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_id UUID NOT NULL REFERENCES cinema_admin_user(id) ON DELETE CASCADE,
+  org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  token_hash VARCHAR(64) NOT NULL UNIQUE,
+  prefix VARCHAR(20) NOT NULL,
+  last_used_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_admin_api_keys_admin ON admin_api_keys(admin_id) WHERE revoked_at IS NULL;
+
+-- ============================
 -- ADMIN VERIFICATION TOKENS
 -- ============================
 CREATE TABLE IF NOT EXISTS admin_verification_tokens (
