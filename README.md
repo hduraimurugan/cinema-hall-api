@@ -5,9 +5,24 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Razorpay](https://img.shields.io/badge/Razorpay-v2.x-002E6E?logo=razorpay&logoColor=white)](https://razorpay.com/)
 [![Sentry](https://img.shields.io/badge/Sentry-Error_Tracking-362D59?logo=sentry&logoColor=white)](https://sentry.io/)
-[![License](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
+[![Vitest](https://img.shields.io/badge/Tests-352_passing-brightgreen?logo=vitest&logoColor=white)](docs/backend_tests.md)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A robust, performant RESTful backend API built with **Express.js** and **PostgreSQL**. This service handles identity management, multi-hall configuration, screen configurations, showtime scheduling with overlap prevention, seat holds with a background TTL release, secure Razorpay checkout verification, atomic webhook processing, offers & promotions, platform advertising, and real-time ticket validation.
+
+> Part of the **[Cinema Hall Platform](../README.md)** — see also [cinema-hall-admin](../cinema-hall-admin) (admin panel), [cinema-hall-users](../cinema-hall-users) (customer app), and [cinemax-mcp-server](../cinemax-mcp-server) (AI/MCP integration).
+
+---
+
+## 📑 Table of Contents
+
+- [Tech Stack & Features](#️-tech-stack--features)
+- [Directory Structure](#-directory-structure)
+- [Environment Setup](#-environment-setup)
+- [Getting Started](#-getting-started)
+- [Testing](#-testing)
+- [API Documentation](#-api-documentation)
+- [License](#-license)
 
 ---
 
@@ -108,5 +123,24 @@ npm start
 
 ---
 
+## 🧪 Testing
+
+The API ships with **352 tests across 30 files** (unit + integration), run with Vitest and Supertest against a dedicated `cinema_hall_test` PostgreSQL database:
+
+```bash
+npm run test        # watch mode
+npm run test:run    # single run
+npm run test:coverage
+```
+
+See [docs/backend_tests.md](../docs/backend_tests.md) for the full test inventory and setup.
+
+---
+
 ## 📘 API Documentation
 For detailed explanations of all endpoints (including parameters, headers, and request/response models), please consult [docs/backend.md](../docs/backend.md).
+
+---
+
+## 📄 License
+Licensed under the [MIT License](LICENSE).
