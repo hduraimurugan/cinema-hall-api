@@ -82,10 +82,26 @@ Create a `.env` file in the root of the `cinema-hall-api` directory using the fo
 | `RAZORPAY_KEY_ID` | Razorpay public test/live key | `rzp_test_XXXXXXXXXXXXXX` |
 | `RAZORPAY_KEY_SECRET` | Razorpay private secret key | `your_razorpay_secret_key` |
 | `RAZORPAY_WEBHOOK_SECRET` | Webhook verification secret | `your_webhook_secret_phrase` |
+| `MAIL_ID` | SMTP sender mailbox (Nodemailer) | `you@gmail.com` |
+| `MAIL_PASSWORD` | SMTP app password | `your_smtp_app_password` |
+| `MAIL_HOST` | SMTP host | `smtp.gmail.com` |
 | `MAILGET_API_KEY` | SMTP Mail provider API Key (for OTPs) | `your_smtp_api_key` |
 | `MAILGET_SECRET_KEY` | SMTP Mail provider Secret Key | `your_smtp_secret_key` |
 | `TMDB_API_KEY` | TMDB developer API key (v3 bearer token) | `eyJhbGciOiJIUzI1NiJ9...` |
 | `CRON_SECRET` | Verification token for Vercel Cron jobs | `your_custom_cron_secret` |
+| `ADMIN_FRONTEND_URL` | Admin panel origin (CORS + email links) | `http://localhost:5174` |
+| `USER_FRONTEND_URL` | Customer app origin (CORS + email links) | `http://localhost:5173` |
+| `API_BASE_URL` | This API's own public URL (used to build the QStash publish target) | `http://localhost:5000` |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID | `your_google_client_id.apps.googleusercontent.com` |
+| `GITHUB_CLIENT_ID` | GitHub OAuth client ID (admin login) | `your_github_client_id` |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth client secret | `your_github_client_secret` |
+| `QSTASH_URL` | Upstash QStash endpoint (local dev server or cloud) | `http://localhost:8080` |
+| `QSTASH_TOKEN` | QStash auth token | `your_qstash_token` |
+| `QSTASH_CURRENT_SIGNING_KEY` | QStash webhook signing key (current) | `sig_xxxxxxxx` |
+| `QSTASH_NEXT_SIGNING_KEY` | QStash webhook signing key (next, for rotation) | `sig_xxxxxxxx` |
+| `FIREBASE_PROJECT_ID` | Firebase Admin SDK project ID (push notifications) | `your-firebase-project-id` |
+| `FIREBASE_CLIENT_EMAIL` | Firebase Admin SDK service account email | `firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com` |
+| `FIREBASE_PRIVATE_KEY` | Firebase Admin SDK service account private key (`\n`-escaped) | `"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"` |
 
 ---
 
